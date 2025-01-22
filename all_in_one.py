@@ -1543,7 +1543,11 @@ def manage_student_records():
                         st.write("**Payment Information**")
                         if pd.notna(student['receipt_path']) and student['receipt_path']:
                             st.write("✅ Receipt Uploaded")
-                            st.write(f"Receipt Amount: GHS {float(student['receipt_amount']):.2f}")
+                            # Ensure 'receipt_amount' is extracted as a scalar value
+                            receipt_amount = student['receipt_amount'].iloc[0] if isinstance(student['receipt_amount'], pd.Series) else student['receipt_amount']
+
+                            # Format and display
+                            st.write(f"Receipt Amount: GHS {float(receipt_amount):.2f}")
                         else:
                             st.write("⚪ No Receipt (Optional)")
                 
