@@ -17,7 +17,6 @@ import shutil
 import plotly.express as px
 import fitz
 
-
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
