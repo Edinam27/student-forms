@@ -965,9 +965,9 @@ def student_info_form():
 
     with col9:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
-        ghana_card = st.file_uploader("Upload Ghana Card", type=['pdf', 'jpg', 'png'])
+        ghana_card = st.file_uploader("Upload Ghana Card/ Birth Certificate", type=['pdf', 'jpg', 'png'])
         passport_photo = st.file_uploader("Upload Passport Photo", type=['jpg', 'png'])
-        transcript = st.file_uploader("Upload Transcript", type=['pdf'])
+        transcript = st.file_uploader("Upload Transcript/ Results", type=['pdf', 'jpg', 'png'])
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col10:
