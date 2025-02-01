@@ -439,6 +439,18 @@ def generate_student_info_pdf(data):
     return filename
 
 def generate_course_registration_pdf(data):
+    
+    # Get student info from database
+    conn = sqlite3.connect('student_registration.db')
+    c = conn.cursor()
+    c.execute("""
+        SELECT passport_photo_path, surname, other_names, email 
+        FROM student_info 
+        WHERE student_id = ?
+    """, (data['student_id'],))
+    student_info = c.fetchone()
+    conn.close()
+
     filename = f"course_registration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     doc = SimpleDocTemplate(
         filename,
@@ -471,13 +483,29 @@ def generate_course_registration_pdf(data):
     
     elements = []
     
-    # Header with Logo
-    header_data = [
-        [Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch),
-         Paragraph("UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA", styles['CustomTitle']),
-         Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch)]
-    ]
-    header_table = Table(header_data, colWidths=[2*inch, 4*inch, 2*inch])
+    # Header with Logo and Student Photo
+    header_elements = []
+    if student_info and student_info[0] and os.path.exists(student_info[0]):
+        try:
+            # Resize passport photo to appropriate dimensions
+            img = PILImage.open(student_info[0])
+            img.thumbnail((100, 100))  # Resize while maintaining aspect ratio
+            img_temp = f"temp_passport_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+            img.save(img_temp)
+            header_elements.append(Image(img_temp, width=1.2*inch, height=1.2*inch))
+            os.remove(img_temp)  # Clean up temporary file
+        except Exception as e:
+            print(f"Error processing passport photo: {e}")
+            header_elements.append(Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch))
+    else:
+        header_elements.append(Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch))
+    
+    header_elements.extend([
+        Paragraph("UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA", styles['CustomTitle']),
+        Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch)
+    ])
+    
+    header_table = Table([header_elements], colWidths=[2*inch, 4*inch, 2*inch])
     header_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -485,10 +513,19 @@ def generate_course_registration_pdf(data):
     elements.append(header_table)
     elements.append(Spacer(1, 20))
     
-    # Document Title
-    elements.append(Paragraph("PROFESSIONAL STUDENT'S COURSE REGISTRATION DOCUMENT", styles['CustomTitle']))
-    elements.append(Paragraph("(FORM A7)", styles['CustomTitle']))
-    elements.append(Spacer(1, 20))
+    # Student Information
+    if student_info:
+        student_details = [
+            [Paragraph(f"<b>Name:</b> {student_info[1]} {student_info[2]}", styles['Normal'])],
+            [Paragraph(f"<b>Email:</b> {student_info[3]}", styles['Normal'])]
+        ]
+        student_table = Table(student_details, colWidths=[7*inch])
+        student_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(student_table)
+        elements.append(Spacer(1, 20))
     
     # Registration Details Section
     elements.append(Paragraph("Registration Details", styles['SectionHeader']))
@@ -570,12 +607,12 @@ def generate_course_registration_pdf(data):
     
     # Signature Section
     signature_data = [
-        ["_______________________", "_______________________", "_______________________"],
-        ["Student's Signature", "Academic Advisor", "Head of Department"],
-        ["Date: ________________", "Date: ________________", "Date: ________________"]
+        ["_______________________", "_______________________"],
+        ["Student's Signature", "IPS Directorate Officer"],
+        ["Date: ________________", "Date: ________________"]
     ]
     
-    sig_table = Table(signature_data, colWidths=[2.5*inch, 2.5*inch, 2.5*inch])
+    sig_table = Table(signature_data, colWidths=[4*inch, 4*inch])
     sig_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
@@ -1229,7 +1266,7 @@ def admin_dashboard():
     
     menu = st.sidebar.selectbox(
         "Menu",
-        ["Student Records", "Course Registrations", "Database Management", 
+        ["Student Records", "Course Registrations", "Programs", "Database Management", 
          "Pending Approvals", "Generate Reports"]
     )
     
@@ -1237,6 +1274,8 @@ def admin_dashboard():
         manage_student_records()
     elif menu == "Course Registrations":
         manage_course_registrations()
+    elif menu == "Programs":
+        manage_programs()
     elif menu == "Database Management":
         manage_database()
     elif menu == "Pending Approvals":
@@ -1247,7 +1286,7 @@ def admin_dashboard():
 def manage_database():
     st.subheader("Database Management")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         # Export complete database
@@ -1316,6 +1355,24 @@ def manage_database():
                     os.remove(zip_file)
                 else:
                     st.error("Error creating zip file or no documents found")
+                    
+    with col3:
+        # New receipt download functionality
+        st.write("### Download All Receipts")
+        if st.button("Download All Receipts"):
+            with st.spinner("Creating zip file of all receipts..."):
+                zip_file = download_receipts()
+                if zip_file and os.path.exists(zip_file):
+                    with open(zip_file, "rb") as f:
+                        st.download_button(
+                            label="Download Receipts ZIP",
+                            data=f,
+                            file_name=zip_file,
+                            mime="application/zip"
+                        )
+                    os.remove(zip_file)
+                else:
+                    st.error("Error creating zip file or no receipts found")
                 
 
 
@@ -1471,6 +1528,7 @@ def show_pending_approvals():
         conn.close()    
             
 
+
 def manage_student_records():
     st.subheader("Student Records Management")
     
@@ -1506,14 +1564,47 @@ def manage_student_records():
     order = "ASC" if sort_order == "Ascending" else "DESC"
     query = f"""
         SELECT 
-            *,
-            COALESCE(receipt_amount, 0.0) as receipt_amount
+            student_id,
+            surname,
+            other_names,
+            date_of_birth,
+            place_of_birth,
+            home_town,
+            residential_address,
+            postal_address,
+            email,
+            telephone,
+            ghana_card_id,
+            nationality,
+            marital_status,
+            gender,
+            religion,
+            denomination,
+            disability_status,
+            disability_description,
+            guardian_name,
+            guardian_relationship,
+            guardian_occupation,
+            guardian_address,
+            guardian_telephone,
+            previous_school,
+            qualification_type,
+            completion_year,
+            aggregate_score,
+            ghana_card_path,
+            passport_photo_path,
+            transcript_path,
+            certificate_path,
+            receipt_path,
+            CAST(receipt_amount AS FLOAT) as receipt_amount,
+            approval_status,
+            created_at,
+            programme
         FROM student_info 
         WHERE 1=1 
         {f"AND approval_status = '{status_filter.lower()}'" if status_filter != 'All' else ''}
         ORDER BY {sort_field} {order}
-    """
-    
+    """    
     df = pd.read_sql_query(query, conn)
     
     if not df.empty:
@@ -1617,6 +1708,21 @@ def manage_student_records():
                         key=f"edit_status_{student['student_id']}"
                     )
                     
+                    st.subheader("Payment Information")
+                    if pd.notna(student['receipt_path']) and student['receipt_path']:
+                        # Convert receipt_amount to float explicitly
+                        current_amount = float(student['receipt_amount']) if pd.notna(student['receipt_amount']) else 0.0
+                        edited_data['receipt_amount'] = st.number_input(
+                            "Receipt Amount (GHS)",
+                            value=current_amount,
+                            min_value=0.0,
+                            format="%.2f",
+                            key=f"edit_receipt_amount_{student['student_id']}"
+                        )
+                        if edited_data['receipt_amount'] < 100.0:
+                            st.warning("Receipt amount seems low. Please verify the payment amount.")
+                    
+                # Update the save changes functionality to include receipt_amount
                     if st.button("Save Changes", key=f"save_changes_{student['student_id']}"):
                         try:
                             c = conn.cursor()
@@ -1632,9 +1738,12 @@ def manage_student_records():
                                     guardian_address=?, guardian_telephone=?,
                                     previous_school=?, qualification_type=?,
                                     completion_year=?, aggregate_score=?,
-                                    approval_status=?
+                                    approval_status=?, receipt_amount=?
                                 WHERE student_id=?
                             """
+                            
+                            # Ensure receipt_amount is a float
+                            receipt_amount = float(edited_data.get('receipt_amount', 0.0))
                             
                             c.execute(update_query, (
                                 edited_data['student_id'], edited_data['surname'],
@@ -1656,6 +1765,7 @@ def manage_student_records():
                                 edited_data['completion_year'],
                                 edited_data['aggregate_score'],
                                 edited_data['approval_status'],
+                                receipt_amount,
                                 student['student_id']
                             ))
                             conn.commit()
@@ -1675,7 +1785,8 @@ def manage_student_records():
                     }
                     
                     for doc_name, doc_path in documents.items():
-                        col1, col2 = st.columns([3, 1])
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        
                         with col1:
                             if doc_path:
                                 st.write(f"✅ {doc_name} uploaded")
@@ -1691,6 +1802,37 @@ def manage_student_records():
                                 st.write(f"❌ {doc_name} not uploaded")
                         
                         with col2:
+                            # Add upload functionality
+                            new_file = st.file_uploader(
+                                f"Upload new {doc_name}",
+                                type=['pdf', 'jpg', 'jpeg', 'png'] if doc_name == 'Passport Photo' else ['pdf', 'jpeg', 'png'],
+                                key=f"upload_{doc_name}_{student['student_id']}"
+                            )
+                            
+                            if new_file:
+                                if st.button(f"Save {doc_name}", key=f"save_{doc_name}_{student['student_id']}"):
+                                    try:
+                                        # Delete old file if it exists
+                                        if doc_path and os.path.exists(doc_path):
+                                            os.remove(doc_path)
+                                        
+                                        # Save new file
+                                        new_path = save_uploaded_file(new_file, "uploads")
+                                        
+                                        # Update database
+                                        c = conn.cursor()
+                                        c.execute(f"""
+                                            UPDATE student_info 
+                                            SET {doc_name.lower().replace(' ', '_')}_path = ? 
+                                            WHERE student_id = ?
+                                        """, (new_path, student['student_id']))
+                                        conn.commit()
+                                        st.success(f"{doc_name} uploaded successfully!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error uploading {doc_name}: {str(e)}")
+                        
+                        with col3:
                             if doc_path:
                                 if st.button(f"Delete {doc_name}", key=f"del_{doc_name}_{student['student_id']}"):
                                     try:
@@ -2055,6 +2197,251 @@ def manage_course_registrations():
         st.info("No records found")
     
     conn.close()
+    
+    
+def manage_programs():
+    st.title("Programs Management")
+    
+    # Get all unique programs from course registration
+    conn = sqlite3.connect('student_registration.db')
+    programs_df = pd.read_sql_query("""
+        SELECT DISTINCT programme 
+        FROM course_registration 
+        WHERE programme IS NOT NULL
+    """, conn)
+    
+    if not programs_df.empty:
+        for program in programs_df['programme']:
+            with st.expander(f"📚 {program}"):
+                # Get all levels/pathways for this program
+                levels_df = pd.read_sql_query("""
+                    SELECT DISTINCT level 
+                    FROM course_registration 
+                    WHERE programme = ? 
+                    ORDER BY level
+                """, conn, params=(program,))
+                
+                for _, level_row in levels_df.iterrows():
+                    level = level_row['level']
+                    st.subheader(f"{level}")
+                    
+                    # Get students in this program and level
+                    students_df = pd.read_sql_query("""
+                        SELECT DISTINCT 
+                            cr.student_id,
+                            si.surname,
+                            si.other_names,
+                            si.passport_photo_path,
+                            cr.academic_year,
+                            cr.semester
+                        FROM course_registration cr
+                        JOIN student_info si ON cr.student_id = si.student_id
+                        WHERE cr.programme = ? AND cr.level = ?
+                        ORDER BY si.surname, si.other_names
+                    """, conn, params=(program, level))
+                    
+                    if not students_df.empty:
+                        # Display student count
+                        st.write(f"Total Students: {len(students_df)}")
+                        
+                        # Create a grid of student cards
+                        cols = st.columns(4)
+                        for idx, student in students_df.iterrows():
+                            with cols[idx % 4]:
+                                st.write("---")
+                                if student['passport_photo_path'] and os.path.exists(student['passport_photo_path']):
+                                    try:
+                                        image = PILImage.open(student['passport_photo_path'])
+                                        st.image(image, width=100)
+                                    except Exception as e:
+                                        st.error("Error loading photo")
+                                st.write(f"**{student['surname']}, {student['other_names']}**")
+                                st.write(f"ID: {student['student_id']}")
+                                st.write(f"Year: {student['academic_year']}")
+                                st.write(f"Semester: {student['semester']}")
+                        
+                        # Add download button for this level
+                        if st.button(f"Download {program} - {level} Student List", key=f"btn_{program}_{level}"):
+                            pdf_file = generate_program_student_list(program, level, students_df)
+                            with open(pdf_file, "rb") as file:
+                                st.download_button(
+                                    label=f"Download {program} - {level} PDF",
+                                    data=file,
+                                    file_name=pdf_file,
+                                    mime="application/pdf"
+                                )
+                    else:
+                        st.info(f"No students registered for {level}")
+    else:
+        st.info("No programs found in the database")
+    
+    conn.close()
+
+def generate_program_student_list(program, level, students_df):
+    """Generate a PDF containing the student list for a specific program and level"""
+    filename = f"{program}_{level}_students_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    doc = SimpleDocTemplate(
+        filename,
+        pagesize=A4,
+        rightMargin=1.5*cm,
+        leftMargin=1.5*cm,
+        topMargin=1.5*cm,
+        bottomMargin=1.5*cm
+    )
+    
+    # Styles
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name='CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        alignment=TA_CENTER,
+        spaceAfter=30,
+        textColor=colors.HexColor('#003366')
+    ))
+    
+    elements = []
+    
+    # Header
+    header_data = [
+        [Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch),
+         Paragraph("UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA", styles['CustomTitle']),
+         Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch)]
+    ]
+    header_table = Table(header_data, colWidths=[2*inch, 4*inch, 2*inch])
+    header_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    elements.append(header_table)
+    elements.append(Spacer(1, 20))
+    
+    # Program and Level Information
+    elements.append(Paragraph(f"Program: {program}", styles['Heading2']))
+    elements.append(Paragraph(f"Level: {level}", styles['Heading2']))
+    elements.append(Paragraph(f"Total Students: {len(students_df)}", styles['Normal']))
+    elements.append(Spacer(1, 20))
+    
+    # Student List
+    for _, student in students_df.iterrows():
+        # Create a table for each student
+        student_data = []
+        
+        # Add photo if available
+        if student['passport_photo_path'] and os.path.exists(student['passport_photo_path']):
+            try:
+                photo = Image(student['passport_photo_path'], width=1*inch, height=1*inch)
+                student_data.append([photo, Paragraph(f"""
+                    <b>Name:</b> {student['surname']}, {student['other_names']}<br/>
+                    <b>Student ID:</b> {student['student_id']}<br/>
+                    <b>Academic Year:</b> {student['academic_year']}<br/>
+                    <b>Semester:</b> {student['semester']}
+                """, styles['Normal'])])
+            except:
+                student_data.append([Paragraph("No Photo", styles['Normal']),
+                                   Paragraph(f"""
+                    <b>Name:</b> {student['surname']}, {student['other_names']}<br/>
+                    <b>Student ID:</b> {student['student_id']}<br/>
+                    <b>Academic Year:</b> {student['academic_year']}<br/>
+                    <b>Semester:</b> {student['semester']}
+                """, styles['Normal'])])
+        else:
+            student_data.append([Paragraph("No Photo", styles['Normal']),
+                               Paragraph(f"""
+                <b>Name:</b> {student['surname']}, {student['other_names']}<br/>
+                <b>Student ID:</b> {student['student_id']}<br/>
+                <b>Academic Year:</b> {student['academic_year']}<br/>
+                <b>Semester:</b> {student['semester']}
+            """, styles['Normal'])])
+        
+        student_table = Table(student_data, colWidths=[1.5*inch, 5*inch])
+        student_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(student_table)
+        elements.append(Spacer(1, 10))
+    
+    # Footer
+    elements.append(Spacer(1, 20))
+    elements.append(Paragraph(
+        f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        styles['Normal']
+    ))
+    
+    doc.build(elements)
+    return filename
+    
+    
+def download_receipts():
+    """
+    Creates a zip file containing all uploaded receipts from both
+    student information and course registration tables.
+    Returns the path to the zip file.
+    """
+    # Create a temporary directory for organizing receipts
+    temp_dir = "temp_receipts"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
+    try:
+        conn = sqlite3.connect('student_registration.db')
+        cursor = conn.cursor()
+        
+        # Fetch all student receipts
+        cursor.execute("""
+            SELECT student_id, surname, other_names, 
+                   receipt_path, receipt_amount
+            FROM student_info
+            WHERE receipt_path IS NOT NULL
+        """)
+        student_receipts = cursor.fetchall()
+        
+        # Fetch all course registration receipts
+        cursor.execute("""
+            SELECT cr.registration_id, cr.student_id, si.surname, si.other_names,
+                   cr.receipt_path, cr.receipt_amount
+            FROM course_registration cr
+            LEFT JOIN student_info si ON cr.student_id = si.student_id
+            WHERE cr.receipt_path IS NOT NULL
+        """)
+        registration_receipts = cursor.fetchall()
+        
+        # Create a timestamped zip file
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        zip_filename = f"all_receipts_{timestamp}.zip"
+        
+        with zipfile.ZipFile(zip_filename, 'w') as zipf:
+            # Add student receipts
+            for receipt in student_receipts:
+                student_id, surname, other_names, receipt_path, amount = receipt
+                if receipt_path and os.path.exists(receipt_path):
+                    # Create a meaningful filename
+                    _, ext = os.path.splitext(receipt_path)
+                    archive_path = f"student_receipts/{student_id}_{surname}_{other_names}_amount_{amount}{ext}"
+                    zipf.write(receipt_path, archive_path)
+            
+            # Add course registration receipts
+            for receipt in registration_receipts:
+                reg_id, student_id, surname, other_names, receipt_path, amount = receipt
+                if receipt_path and os.path.exists(receipt_path):
+                    _, ext = os.path.splitext(receipt_path)
+                    archive_path = f"registration_receipts/reg_{reg_id}_{student_id}_{surname}_{other_names}_amount_{amount}{ext}"
+                    zipf.write(receipt_path, archive_path)
+        
+        return zip_filename
+
+    except Exception as e:
+        print(f"Error creating receipts zip file: {str(e)}")
+        return None
+
+    finally:
+        conn.close()
+        # Clean up temporary directory
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
 
 
 
@@ -2417,6 +2804,8 @@ def insert_student_info(c, form_data, file_paths):
     )
     
     c.execute(insert_query, params)
+    
+
 
 def main():
     st.set_page_config(
