@@ -17,6 +17,9 @@ import shutil
 import plotly.express as px
 import fitz
 
+
+
+
 if not os.path.exists("uploads"):
     os.makedirs("uploads")
 
@@ -436,18 +439,6 @@ def generate_student_info_pdf(data):
     return filename
 
 def generate_course_registration_pdf(data):
-    
-    # Get student info from database
-    conn = sqlite3.connect('student_registration.db')
-    c = conn.cursor()
-    c.execute("""
-        SELECT passport_photo_path, surname, other_names, email 
-        FROM student_info 
-        WHERE student_id = ?
-    """, (data['student_id'],))
-    student_info = c.fetchone()
-    conn.close()
-
     filename = f"course_registration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     doc = SimpleDocTemplate(
         filename,
@@ -480,17 +471,30 @@ def generate_course_registration_pdf(data):
     
     elements = []
     
+    # Get student info from database
+    conn = sqlite3.connect('student_registration.db')
+    c = conn.cursor()
+    c.execute("""
+        SELECT passport_photo_path, surname, other_names, email 
+        FROM student_info 
+        WHERE student_id = ?
+    """, (data['student_id'],))
+    student_info = c.fetchone()
+    conn.close()
+
     # Header with Logo and Student Photo
     header_elements = []
+    
+    # Handle passport photo
     if student_info and student_info[0] and os.path.exists(student_info[0]):
         try:
-            # Resize passport photo to appropriate dimensions
-            img = PILImage.open(student_info[0])
-            img.thumbnail((100, 100))  # Resize while maintaining aspect ratio
-            img_temp = f"temp_passport_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-            img.save(img_temp)
-            header_elements.append(Image(img_temp, width=1.2*inch, height=1.2*inch))
-            os.remove(img_temp)  # Clean up temporary file
+            # Create a copy of the passport photo in memory
+            with PILImage.open(student_info[0]) as img:
+                img.thumbnail((100, 100))  # Resize while maintaining aspect ratio
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='JPEG')
+                img_buffer.seek(0)
+                header_elements.append(Image(img_buffer))
         except Exception as e:
             print(f"Error processing passport photo: {e}")
             header_elements.append(Image('upsa_logo.jpg', width=1.2*inch, height=1.2*inch))
@@ -549,24 +553,6 @@ def generate_course_registration_pdf(data):
     elements.append(t)
     elements.append(Spacer(1, 20))
     
-    if data['receipt_path']:
-        elements.append(Paragraph("Payment Information", styles['SectionHeader']))
-        payment_info = [
-            ["Receipt Status:", "Uploaded"],
-            ["Receipt Amount:", f"GHS {data['receipt_amount']:.2f}"]
-        ]
-        t = Table(payment_info, colWidths=[2.5*inch, 4*inch])
-        t.setStyle(TableStyle([
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')),
-            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#003366')),
-            ('PADDING', (0, 0), (-1, -1), 6),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ]))
-        elements.append(t)
-        elements.append(Spacer(1, 20))
-    
     # Selected Courses Section
     elements.append(Paragraph("Selected Courses", styles['SectionHeader']))
     courses_list = data['courses'].split('\n')
@@ -583,24 +569,42 @@ def generate_course_registration_pdf(data):
         ('PADDING', (0, 0), (-1, -1), 6),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('ALIGN', (-1, 0), (-1, -1), 'CENTER'),  # Center credit hours
+        ('ALIGN', (-1, 0), (-1, -1), 'CENTER'),
     ]))
     elements.append(t)
     
     # Total Credits
-    total_credits_style = ParagraphStyle(
-        'TotalCredits',
-        parent=styles['Normal'],
-        fontSize=10,
-        textColor=colors.HexColor('#003366'),
-        alignment=TA_LEFT,
-        spaceBefore=10
-    )
     elements.append(Paragraph(
         f"<b>Total Credit Hours:</b> {data['total_credits']}",
-        total_credits_style
+        ParagraphStyle(
+            'TotalCredits',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor=colors.HexColor('#003366'),
+            alignment=TA_LEFT,
+            spaceBefore=10
+        )
     ))
     elements.append(Spacer(1, 30))
+    
+    # Payment Information
+    if data.get('receipt_path'):
+        elements.append(Paragraph("Payment Information", styles['SectionHeader']))
+        payment_info = [
+            ["Receipt Status:", "Uploaded"],
+            ["Receipt Amount:", f"GHS {data.get('receipt_amount', 0.0):.2f}"]
+        ]
+        t = Table(payment_info, colWidths=[2.5*inch, 4*inch])
+        t.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f0f0f0')),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#003366')),
+            ('PADDING', (0, 0), (-1, -1), 6),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ]))
+        elements.append(t)
+        elements.append(Spacer(1, 20))
     
     # Signature Section
     signature_data = [
@@ -620,17 +624,16 @@ def generate_course_registration_pdf(data):
     elements.append(sig_table)
     
     # Footer
-    footer_style = ParagraphStyle(
-        'Footer',
-        parent=styles['Normal'],
-        fontSize=8,
-        textColor=colors.grey,
-        alignment=TA_CENTER
-    )
     elements.append(Spacer(1, 30))
     elements.append(Paragraph(
         f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | UPSA Course Registration System",
-        footer_style
+        ParagraphStyle(
+            'Footer',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=colors.grey,
+            alignment=TA_CENTER
+        )
     ))
     
     doc.build(elements)
@@ -681,6 +684,82 @@ def review_student_info(form_data, uploaded_files):
             st.write(f"✅ {doc_name} uploaded")
         else:
             st.write(f"❌ {doc_name} not uploaded")
+            
+            
+def generate_batch_pdfs(document_type="student_info"):
+    """
+    Generate PDFs for all students or course registrations and combine them into a zip file.
+    
+    Args:
+        document_type (str): Either "student_info" or "course_registration"
+    
+    Returns:
+        str: Path to the generated zip file
+    """
+    # Create a temporary directory for PDFs
+    temp_dir = "temp_pdfs"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
+    try:
+        conn = sqlite3.connect('student_registration.db')
+        
+        if document_type == "student_info":
+            # Get all student records
+            students_df = pd.read_sql_query("SELECT * FROM student_info", conn)
+            
+            # Generate PDFs for each student
+            for _, student in students_df.iterrows():
+                try:
+                    pdf_file = generate_student_info_pdf(student)
+                    # Move PDF to temp directory
+                    new_path = os.path.join(temp_dir, os.path.basename(pdf_file))
+                    shutil.move(pdf_file, new_path)
+                except Exception as e:
+                    print(f"Error generating PDF for student {student['student_id']}: {str(e)}")
+                    continue
+        
+        else:  # course_registration
+            # Get all course registration records with student info
+            registrations_df = pd.read_sql_query("""
+                SELECT cr.*, si.surname, si.other_names, si.passport_photo_path
+                FROM course_registration cr
+                LEFT JOIN student_info si ON cr.student_id = si.student_id
+            """, conn)
+            
+            # Generate PDFs for each registration
+            for _, registration in registrations_df.iterrows():
+                try:
+                    pdf_file = generate_course_registration_pdf(registration)
+                    # Move PDF to temp directory
+                    new_path = os.path.join(temp_dir, os.path.basename(pdf_file))
+                    shutil.move(pdf_file, new_path)
+                except Exception as e:
+                    print(f"Error generating PDF for registration {registration['registration_id']}: {str(e)}")
+                    continue
+
+        # Create ZIP file containing all PDFs
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        zip_filename = f"all_{document_type}_pdfs_{timestamp}.zip"
+        
+        with zipfile.ZipFile(zip_filename, 'w') as zipf:
+            for root, _, files in os.walk(temp_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.basename(file_path)
+                    zipf.write(file_path, arcname)
+
+        return zip_filename
+
+    except Exception as e:
+        print(f"Error in batch PDF generation: {str(e)}")
+        return None
+
+    finally:
+        conn.close()
+        # Clean up temporary directory
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
             
 def view_student_info():
     st.subheader("View Student Information")
@@ -964,9 +1043,9 @@ def student_info_form():
 
     with col9:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
-        ghana_card = st.file_uploader("Upload Ghana Card/ Birth Certificate", type=['pdf', 'jpg', 'png'])
+        ghana_card = st.file_uploader("Upload Ghana Card", type=['pdf', 'jpg', 'png'])
         passport_photo = st.file_uploader("Upload Passport Photo", type=['jpg', 'png'])
-        transcript = st.file_uploader("Upload Transcript/ Results", type=['pdf', 'jpg', 'png'])
+        transcript = st.file_uploader("Upload Transcript", type=['pdf'])
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col10:
@@ -1370,6 +1449,44 @@ def manage_database():
                     os.remove(zip_file)
                 else:
                     st.error("Error creating zip file or no receipts found")
+                    
+    # Add new column for batch PDF generation
+    st.write("### Generate All PDFs")
+    col_pdfs1, col_pdfs2 = st.columns(2)
+
+    with col_pdfs1:
+        if st.button("Generate All Student Info PDFs"):
+            with st.spinner("Generating student information PDFs..."):
+                zip_file = generate_batch_pdfs("student_info")
+                if zip_file and os.path.exists(zip_file):
+                    with open(zip_file, "rb") as f:
+                        st.download_button(
+                            label="Download Student Info PDFs",
+                            data=f,
+                            file_name=zip_file,
+                            mime="application/zip"
+                        )
+                    os.remove(zip_file)
+                else:
+                    st.error("Error generating PDFs")
+
+    with col_pdfs2:
+        if st.button("Generate All Course Registration PDFs"):
+            with st.spinner("Generating course registration PDFs..."):
+                zip_file = generate_batch_pdfs("course_registration")
+                if zip_file and os.path.exists(zip_file):
+                    with open(zip_file, "rb") as f:
+                        st.download_button(
+                            label="Download Course Registration PDFs",
+                            data=f,
+                            file_name=zip_file,
+                            mime="application/zip"
+                        )
+                    os.remove(zip_file)
+                else:
+                    st.error("Error generating PDFs")
+                    
+    
                 
 
 
