@@ -2945,6 +2945,55 @@ def insert_student_info(c, form_data, file_paths):
     )
     
     c.execute(insert_query, params)
+
+
+
+def migrate_student_table():
+    """
+    Migrates the student_info table to add new columns for authentication
+    without losing existing data.
+    """
+    conn = sqlite3.connect('student_registration.db')
+    c = conn.cursor()
+    
+    try:
+        # Start transaction
+        c.execute('BEGIN TRANSACTION')
+        
+        # Check if new columns exist before adding them
+        c.execute('PRAGMA table_info(student_info)')
+        existing_columns = [column[1] for column in c.fetchall()]
+        
+        # Add new columns if they don't exist
+        if 'password' not in existing_columns:
+            c.execute('ALTER TABLE student_info ADD COLUMN password TEXT')
+        
+        if 'last_login' not in existing_columns:
+            c.execute('ALTER TABLE student_info ADD COLUMN last_login DATETIME')
+            
+        if 'password_reset_required' not in existing_columns:
+            c.execute('ALTER TABLE student_info ADD COLUMN password_reset_required BOOLEAN DEFAULT 1')
+        
+        # Set default passwords for existing students (if any)
+        c.execute('''
+            UPDATE student_info 
+            SET password = LOWER(SUBSTR(student_id, 1, 4) || SUBSTR(surname, 1, 4)),
+                password_reset_required = 1
+            WHERE password IS NULL
+        ''')
+        
+        # Commit transaction
+        conn.commit()
+        print("Migration completed successfully")
+        
+    except sqlite3.Error as e:
+        # Rollback in case of error
+        conn.rollback()
+        print(f"An error occurred: {e}")
+        raise
+    
+    finally:
+        conn.close()
     
 
 
@@ -3038,4 +3087,5 @@ def main():
 
 if __name__ == "__main__":
     init_db()
+    migrate_student_table()
     main()
