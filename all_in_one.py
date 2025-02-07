@@ -2948,10 +2948,9 @@ def insert_student_info(c, form_data, file_paths):
 
 
 
-def migrate_student_table():
+def migrate_student_auth():
     """
-    Migrates the student_info table to add new columns for authentication
-    without losing existing data.
+    Migrates the student_info table to add authentication columns without losing existing data.
     """
     conn = sqlite3.connect('student_registration.db')
     c = conn.cursor()
@@ -2960,21 +2959,23 @@ def migrate_student_table():
         # Start transaction
         c.execute('BEGIN TRANSACTION')
         
-        # Check if new columns exist before adding them
+        # Check existing columns
         c.execute('PRAGMA table_info(student_info)')
         existing_columns = [column[1] for column in c.fetchall()]
         
         # Add new columns if they don't exist
-        if 'password' not in existing_columns:
-            c.execute('ALTER TABLE student_info ADD COLUMN password TEXT')
+        new_columns = {
+            'password': 'TEXT',
+            'last_login': 'DATETIME',
+            'password_reset_required': 'BOOLEAN DEFAULT 1'
+        }
         
-        if 'last_login' not in existing_columns:
-            c.execute('ALTER TABLE student_info ADD COLUMN last_login DATETIME')
-            
-        if 'password_reset_required' not in existing_columns:
-            c.execute('ALTER TABLE student_info ADD COLUMN password_reset_required BOOLEAN DEFAULT 1')
+        for column_name, column_type in new_columns.items():
+            if column_name not in existing_columns:
+                c.execute(f'ALTER TABLE student_info ADD COLUMN {column_name} {column_type}')
         
         # Set default passwords for existing students (if any)
+        # Uses first 4 characters of student_id + first 4 characters of surname
         c.execute('''
             UPDATE student_info 
             SET password = LOWER(SUBSTR(student_id, 1, 4) || SUBSTR(surname, 1, 4)),
@@ -2994,7 +2995,69 @@ def migrate_student_table():
     
     finally:
         conn.close()
+
+# Add this to your init_db() function
+def update_init_db():
+    """
+    Updates the init_db() function to include the new columns.
+    """
+    conn = sqlite3.connect('student_registration.db')
+    c = conn.cursor()
     
+    try:
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS student_info (
+                student_id TEXT PRIMARY KEY,
+                surname TEXT,
+                other_names TEXT,
+                date_of_birth DATE,
+                place_of_birth TEXT,
+                home_town TEXT,
+                residential_address TEXT,
+                postal_address TEXT,
+                email TEXT,
+                telephone TEXT,
+                ghana_card_id TEXT,
+                nationality TEXT,
+                marital_status TEXT,
+                gender TEXT,
+                religion TEXT,
+                denomination TEXT,
+                disability_status TEXT,
+                disability_description TEXT,
+                guardian_name TEXT,
+                guardian_relationship TEXT,
+                guardian_occupation TEXT,
+                guardian_address TEXT,
+                guardian_telephone TEXT,
+                previous_school TEXT,
+                qualification_type TEXT,
+                completion_year TEXT,
+                aggregate_score TEXT,
+                ghana_card_path TEXT,
+                passport_photo_path TEXT,
+                transcript_path TEXT,
+                certificate_path TEXT,
+                receipt_path TEXT,
+                receipt_amount REAL DEFAULT 0.0,
+                approval_status TEXT DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                programme TEXT,
+                password TEXT,
+                last_login DATETIME,
+                password_reset_required BOOLEAN DEFAULT 1
+            )
+        ''')
+        conn.commit()
+        
+    except sqlite3.Error as e:
+        print(f"An error occurred: {e}")
+        raise
+        
+    finally:
+        conn.close()
+
+
 
 
 def main():
@@ -3087,5 +3150,6 @@ def main():
 
 if __name__ == "__main__":
     init_db()
-    migrate_student_table()
+    migrate_student_auth()
+    update_init_db()
     main()
