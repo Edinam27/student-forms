@@ -16,6 +16,10 @@ from pathlib import Path
 import shutil
 import plotly.express as px
 import fitz
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
 
@@ -1365,16 +1369,17 @@ def manage_database():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Export complete database
         st.write("### Export Complete Database")
-        if st.button("Download Complete Database"):
+        if st.button("Download Complete Database (Excel)"):
             try:
-                # Create a ZIP file containing all database tables
-                zip_filename = f"complete_database_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+                # Create a temporary directory for exported files
+                export_dir = "temp_export"
+                if not os.path.exists(export_dir):
+                    os.makedirs(export_dir)
                 
                 conn = sqlite3.connect('student_registration.db')
                 
-                # Get all tables
+                # Retrieve data from tables with additional formatting
                 tables = {
                     "student_info": pd.read_sql_query("""
                         SELECT *, 
@@ -1390,15 +1395,46 @@ def manage_database():
                     """, conn)
                 }
                 
-                # Create ZIP file
-                with zipfile.ZipFile(zip_filename, 'w') as zipf:
-                    for table_name, df in tables.items():
-                        csv_filename = f"{table_name}.csv"
-                        df.to_csv(csv_filename, index=False)
-                        zipf.write(csv_filename)
-                        os.remove(csv_filename)  # Clean up CSV file
+                excel_files = []
+                # Export each table as a formatted Excel file
+                for table_name, df in tables.items():
+                    excel_filename = os.path.join(export_dir, f"{table_name}.xlsx")
+                    with pd.ExcelWriter(excel_filename, engine='openpyxl') as writer:
+                        df.to_excel(writer, index=False, sheet_name=table_name)
+                        workbook = writer.book
+                        worksheet = writer.sheets[table_name]
+                        
+                        # Auto-adjust column widths for better visual presentation.
+                        for column_cells in worksheet.columns:
+                            max_length = 0
+                            # Get the column letter (e.g., A, B, ...)
+                            column = column_cells[0].column_letter
+                            for cell in column_cells:
+                                try:
+                                    cell_length = len(str(cell.value))
+                                    if cell_length > max_length:
+                                        max_length = cell_length
+                                except Exception:
+                                    pass
+                            adjusted_width = max_length + 2
+                            worksheet.column_dimensions[column].width = adjusted_width
+                    excel_files.append(excel_filename)
                 
-                # Provide download button for ZIP file
+                # Create a ZIP file that contains all exported Excel files
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                zip_filename = f"complete_database_{timestamp}.zip"
+                with zipfile.ZipFile(zip_filename, 'w') as zipf:
+                    for file in excel_files:
+                        arcname = os.path.basename(file)
+                        zipf.write(file, arcname)
+                
+                # Clean up temporary export files
+                for file in excel_files:
+                    os.remove(file)
+                os.rmdir(export_dir)
+                
+                conn.close()
+                
                 with open(zip_filename, "rb") as f:
                     st.download_button(
                         label="Download Database ZIP",
@@ -1406,15 +1442,11 @@ def manage_database():
                         file_name=zip_filename,
                         mime="application/zip"
                     )
-                
-                os.remove(zip_filename)  # Clean up ZIP file
-                conn.close()
-                
+                os.remove(zip_filename)
             except Exception as e:
                 st.error(f"Error exporting database: {str(e)}")
                 
     with col2:
-        # New document download functionality
         st.write("### Download All Documents")
         if st.button("Download All Documents"):
             with st.spinner("Creating zip file of all documents..."):
@@ -1427,13 +1459,11 @@ def manage_database():
                             file_name=zip_file,
                             mime="application/zip"
                         )
-                    # Clean up zip file after download button is created
                     os.remove(zip_file)
                 else:
                     st.error("Error creating zip file or no documents found")
                     
     with col3:
-        # New receipt download functionality
         st.write("### Download All Receipts")
         if st.button("Download All Receipts"):
             with st.spinner("Creating zip file of all receipts..."):
@@ -1449,11 +1479,9 @@ def manage_database():
                     os.remove(zip_file)
                 else:
                     st.error("Error creating zip file or no receipts found")
-                    
-    # Add new column for batch PDF generation
+    
     st.write("### Generate All PDFs")
     col_pdfs1, col_pdfs2 = st.columns(2)
-
     with col_pdfs1:
         if st.button("Generate All Student Info PDFs"):
             with st.spinner("Generating student information PDFs..."):
@@ -1469,7 +1497,6 @@ def manage_database():
                     os.remove(zip_file)
                 else:
                     st.error("Error generating PDFs")
-
     with col_pdfs2:
         if st.button("Generate All Course Registration PDFs"):
             with st.spinner("Generating course registration PDFs..."):
