@@ -1341,16 +1341,19 @@ def course_registration_form():
         conn.close()
 
 
+# Update the admin dashboard to include the new bulk upload functionality
 def admin_dashboard():
     st.title("Admin Dashboard")
     
     menu = st.sidebar.selectbox(
         "Menu",
-        ["Student Records", "Course Registrations", "Programs", "Database Management", 
+        ["Upload Data", "Student Records", "Course Registrations", "Programs", "Database Management", 
          "Pending Approvals", "Generate Reports"]
     )
     
-    if menu == "Student Records":
+    if menu == "Upload Data":
+        upload_data_from_excel_and_docs()
+    elif menu == "Student Records":
         manage_student_records()
     elif menu == "Course Registrations":
         manage_course_registrations()
@@ -1363,51 +1366,71 @@ def admin_dashboard():
     else:
         generate_reports()
 
+
+
+def zip_uploads_folder():
+    """
+    Zips the entire 'uploads' folder preserving its structure exactly as is.
+    
+    Returns:
+        The filename of the generated zip file, or None if the uploads folder does not exist.
+    """
+    uploads_dir = "uploads"
+    if not os.path.exists(uploads_dir):
+        return None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"uploads_folder_{timestamp}"
+    zip_filename = f"{base_name}.zip"
+    # This will create a zip archive with the base directory inside it as it is.
+    shutil.make_archive(base_name=base_name, format="zip", root_dir=uploads_dir)
+    return zip_filename
+
 def manage_database():
     st.subheader("Database Management")
-    
-    col1, col2, col3 = st.columns(3)
-    
+
+    col1, col2, col3, col4 = st.columns(4)  # Added a new column for the new button
+
     with col1:
         st.write("### Export Complete Database")
         if st.button("Download Complete Database (Excel)"):
             try:
-                # Create a temporary directory for exported files
                 export_dir = "temp_export"
                 if not os.path.exists(export_dir):
                     os.makedirs(export_dir)
-                
-                conn = sqlite3.connect('student_registration.db')
-                
-                # Retrieve data from tables with additional formatting
+
+                conn = sqlite3.connect("student_registration.db")
+
                 tables = {
-                    "student_info": pd.read_sql_query("""
+                    "student_info": pd.read_sql_query(
+                        """
                         SELECT *, 
                             CASE WHEN receipt_path IS NOT NULL THEN 'Yes' ELSE 'No' END as has_receipt,
                             receipt_amount
                         FROM student_info
-                    """, conn),
-                    "course_registration": pd.read_sql_query("""
+                    """,
+                        conn,
+                    ),
+                    "course_registration": pd.read_sql_query(
+                        """
                         SELECT *,
                             CASE WHEN receipt_path IS NOT NULL THEN 'Yes' ELSE 'No' END as has_receipt,
                             receipt_amount
                         FROM course_registration
-                    """, conn)
+                    """,
+                        conn,
+                    ),
                 }
-                
+
                 excel_files = []
-                # Export each table as a formatted Excel file
                 for table_name, df in tables.items():
                     excel_filename = os.path.join(export_dir, f"{table_name}.xlsx")
-                    with pd.ExcelWriter(excel_filename, engine='openpyxl') as writer:
+                    with pd.ExcelWriter(excel_filename, engine="openpyxl") as writer:
                         df.to_excel(writer, index=False, sheet_name=table_name)
                         workbook = writer.book
                         worksheet = writer.sheets[table_name]
-                        
-                        # Auto-adjust column widths for better visual presentation.
+
                         for column_cells in worksheet.columns:
                             max_length = 0
-                            # Get the column letter (e.g., A, B, ...)
                             column = column_cells[0].column_letter
                             for cell in column_cells:
                                 try:
@@ -1419,33 +1442,31 @@ def manage_database():
                             adjusted_width = max_length + 2
                             worksheet.column_dimensions[column].width = adjusted_width
                     excel_files.append(excel_filename)
-                
-                # Create a ZIP file that contains all exported Excel files
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 zip_filename = f"complete_database_{timestamp}.zip"
-                with zipfile.ZipFile(zip_filename, 'w') as zipf:
+                with zipfile.ZipFile(zip_filename, "w") as zipf:
                     for file in excel_files:
                         arcname = os.path.basename(file)
                         zipf.write(file, arcname)
-                
-                # Clean up temporary export files
+
                 for file in excel_files:
                     os.remove(file)
                 os.rmdir(export_dir)
-                
+
                 conn.close()
-                
+
                 with open(zip_filename, "rb") as f:
                     st.download_button(
                         label="Download Database ZIP",
                         data=f,
                         file_name=zip_filename,
-                        mime="application/zip"
+                        mime="application/zip",
                     )
                 os.remove(zip_filename)
             except Exception as e:
                 st.error(f"Error exporting database: {str(e)}")
-                
+
     with col2:
         st.write("### Download All Documents")
         if st.button("Download All Documents"):
@@ -1457,12 +1478,12 @@ def manage_database():
                             label="Download Documents ZIP",
                             data=f,
                             file_name=zip_file,
-                            mime="application/zip"
+                            mime="application/zip",
                         )
                     os.remove(zip_file)
                 else:
                     st.error("Error creating zip file or no documents found")
-                    
+
     with col3:
         st.write("### Download All Receipts")
         if st.button("Download All Receipts"):
@@ -1474,12 +1495,29 @@ def manage_database():
                             label="Download Receipts ZIP",
                             data=f,
                             file_name=zip_file,
-                            mime="application/zip"
+                            mime="application/zip",
                         )
                     os.remove(zip_file)
                 else:
                     st.error("Error creating zip file or no receipts found")
-    
+
+    with col4:
+        st.write("### Download Uploads Folder")
+        if st.button("Download Uploads Folder"):
+            with st.spinner("Creating zip file of the uploads folder..."):
+                zip_file = zip_uploads_folder()
+                if zip_file and os.path.exists(zip_file):
+                    with open(zip_file, "rb") as f:
+                        st.download_button(
+                            label="Download Uploads ZIP",
+                            data=f,
+                            file_name=zip_file,
+                            mime="application/zip",
+                        )
+                    os.remove(zip_file)
+                else:
+                    st.error("Uploads folder not found or error creating zip")
+
     st.write("### Generate All PDFs")
     col_pdfs1, col_pdfs2 = st.columns(2)
     with col_pdfs1:
@@ -1492,7 +1530,7 @@ def manage_database():
                             label="Download Student Info PDFs",
                             data=f,
                             file_name=zip_file,
-                            mime="application/zip"
+                            mime="application/zip",
                         )
                     os.remove(zip_file)
                 else:
@@ -1507,14 +1545,148 @@ def manage_database():
                             label="Download Course Registration PDFs",
                             data=f,
                             file_name=zip_file,
-                            mime="application/zip"
+                            mime="application/zip",
                         )
                     os.remove(zip_file)
                 else:
                     st.error("Error generating PDFs")
                     
     
-                
+def upload_data_from_excel_and_docs():
+    """
+    Bulk upload function updated to accept two Excel files:
+      - One for student information (ignoring any programme data)
+      - One for course registration data (authoritative for programme and other registration data)
+    Optionally uploads a zip file for related documents. 
+    Now, the zip file is simply saved to the uploads folder as-is.
+    """
+    st.header("Bulk Upload Data from Excel & Documents")
+
+    # Use two file uploaders, one for student info and one for course registration
+    st.markdown("### Excel Files Upload")
+    col1, col2 = st.columns(2)
+    with col1:
+        student_excel = st.file_uploader(
+            "Upload Excel File with Student Data",
+            type=["xlsx", "xls"],
+            key="student_excel",
+        )
+    with col2:
+        reg_excel = st.file_uploader(
+            "Upload Excel File with Course Registration Data",
+            type=["xlsx", "xls"],
+            key="reg_excel",
+        )
+
+    docs_zip = st.file_uploader("Upload Zip File of Documents (Optional)", type=["zip"])
+
+    if st.button("Process Bulk Upload"):
+        if student_excel is None or reg_excel is None:
+            st.error(
+                "Please upload both Excel files: one for student information and one for course registration data."
+            )
+            return
+
+        try:
+            # Read the two Excel files
+            student_df = pd.read_excel(student_excel)
+            reg_df = pd.read_excel(reg_excel)
+
+            conn = sqlite3.connect("student_registration.db")
+            c = conn.cursor()
+
+            # Insert student data
+            # Note: We ignore 'programme' from the student file.
+            insert_student_query = """
+                INSERT OR IGNORE INTO student_info (
+                    student_id, surname, other_names, date_of_birth, place_of_birth,
+                    home_town, residential_address, postal_address, email, telephone,
+                    ghana_card_id, nationality, marital_status, gender, religion,
+                    denomination, disability_status, disability_description,
+                    guardian_name, guardian_relationship, guardian_occupation,
+                    guardian_address, guardian_telephone, previous_school,
+                    qualification_type, completion_year, aggregate_score, programme
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """
+            for _, row in student_df.iterrows():
+                params = (
+                    row.get("student_id"),
+                    row.get("surname"),
+                    row.get("other_names"),
+                    row.get("date_of_birth"),
+                    row.get("place_of_birth"),
+                    row.get("home_town"),
+                    row.get("residential_address"),
+                    row.get("postal_address"),
+                    row.get("email"),
+                    row.get("telephone"),
+                    row.get("ghana_card_id"),
+                    row.get("nationality"),
+                    row.get("marital_status"),
+                    row.get("gender"),
+                    row.get("religion"),
+                    row.get("denomination"),
+                    row.get("disability_status", "None"),
+                    row.get("disability_description", "None"),
+                    row.get("guardian_name"),
+                    row.get("guardian_relationship"),
+                    row.get("guardian_occupation"),
+                    row.get("guardian_address"),
+                    row.get("guardian_telephone"),
+                    row.get("previous_school"),
+                    row.get("qualification_type"),
+                    row.get("completion_year"),
+                    row.get("aggregate_score"),
+                    "",  # Programme will be updated from course registration data
+                )
+                c.execute(insert_student_query, params)
+
+            # Insert course registration data
+            insert_reg_query = """
+                INSERT INTO course_registration (
+                    student_id, index_number, programme, specialization, level,
+                    session, academic_year, semester, courses, total_credits,
+                    date_registered, approval_status, receipt_path, receipt_amount
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """
+            for _, row in reg_df.iterrows():
+                params = (
+                    row.get("student_id"),
+                    row.get("index_number"),
+                    row.get("programme"),  # authoritative programme data
+                    row.get("specialization"),
+                    row.get("level"),
+                    row.get("session"),
+                    row.get("academic_year"),
+                    row.get("semester"),
+                    row.get("courses"),
+                    row.get("total_credits"),
+                    row.get("date_registered"),
+                    row.get("approval_status", "pending"),
+                    row.get("receipt_path"),
+                    row.get("receipt_amount", 0.0),
+                )
+                c.execute(insert_reg_query, params)
+                # Update the student's programme field based on registration excel.
+                update_query = (
+                    "UPDATE student_info SET programme = ? WHERE student_id = ?"
+                )
+                c.execute(update_query, (row.get("programme"), row.get("student_id")))
+
+            conn.commit()
+            conn.close()
+
+            st.success("Excel data uploaded successfully!")
+        except Exception as e:
+            st.error(f"Error processing Excel files: {e}")
+
+        # Process the documents zip if provided.
+        if docs_zip:
+            # Instead of processing the zip file,
+            # simply save it in the uploads folder exactly as it is.
+            saved_zip_path = save_uploaded_file(docs_zip, "uploads")
+            st.success("Documents zip uploaded successfully!")
+               
 
 
 def show_pending_approvals():
@@ -2761,7 +2933,249 @@ def generate_reports():
     # Close the database connection
     conn.close()
 
+import sqlite3
+import pandas as pd
+import json
+from datetime import datetime
+import os
+import shutil
+import zipfile
+from typing import Dict, List, Any, Optional
+import logging
 
+class DatabaseMigrationHandler:
+    """
+    Handles database migrations, exports, and imports while maintaining data consistency
+    """
+    
+    SCHEMA_VERSION = "1.0"
+    
+    # Define the expected schema for each table
+    SCHEMAS = {
+        'student_info': {
+            'student_id': 'TEXT PRIMARY KEY',
+            'surname': 'TEXT',
+            'other_names': 'TEXT',
+            'date_of_birth': 'DATE',
+            'place_of_birth': 'TEXT',
+            'home_town': 'TEXT',
+            'residential_address': 'TEXT',
+            'postal_address': 'TEXT',
+            'email': 'TEXT',
+            'telephone': 'TEXT',
+            'ghana_card_id': 'TEXT',
+            'nationality': 'TEXT',
+            'marital_status': 'TEXT',
+            'gender': 'TEXT',
+            'religion': 'TEXT',
+            'denomination': 'TEXT',
+            'disability_status': 'TEXT',
+            'disability_description': 'TEXT',
+            'guardian_name': 'TEXT',
+            'guardian_relationship': 'TEXT',
+            'guardian_occupation': 'TEXT',
+            'guardian_address': 'TEXT',
+            'guardian_telephone': 'TEXT',
+            'previous_school': 'TEXT',
+            'qualification_type': 'TEXT',
+            'completion_year': 'TEXT',
+            'aggregate_score': 'TEXT',
+            'ghana_card_path': 'TEXT',
+            'passport_photo_path': 'TEXT',
+            'transcript_path': 'TEXT',
+            'certificate_path': 'TEXT',
+            'receipt_path': 'TEXT',
+            'receipt_amount': 'REAL DEFAULT 0.0',
+            'approval_status': 'TEXT DEFAULT "pending"',
+            'created_at': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+            'programme': 'TEXT',
+            'password': 'TEXT',
+            'last_login': 'DATETIME',
+            'password_reset_required': 'BOOLEAN DEFAULT 1'
+        },
+        'course_registration': {
+            'registration_id': 'INTEGER PRIMARY KEY AUTOINCREMENT',
+            'student_id': 'TEXT',
+            'index_number': 'TEXT',
+            'programme': 'TEXT',
+            'specialization': 'TEXT',
+            'level': 'TEXT',
+            'session': 'TEXT',
+            'academic_year': 'TEXT',
+            'semester': 'TEXT',
+            'courses': 'TEXT',
+            'total_credits': 'INTEGER',
+            'date_registered': 'DATE',
+            'approval_status': 'TEXT DEFAULT "pending"',
+            'receipt_path': 'TEXT',
+            'receipt_amount': 'REAL DEFAULT 0.0'
+        }
+    }
+    
+    def __init__(self, db_path: str, backup_dir: str = "db_backups"):
+        self.db_path = db_path
+        self.backup_dir = backup_dir
+        self.logger = self._setup_logger()
+        
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+            
+    def _setup_logger(self) -> logging.Logger:
+        """Sets up logging configuration"""
+        logger = logging.getLogger('DatabaseMigration')
+        logger.setLevel(logging.INFO)
+        handler = logging.FileHandler('db_migration.log')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        return logger
+    
+    def backup_database(self) -> str:
+        """Creates a backup of the current database"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = os.path.join(self.backup_dir, f'backup_{timestamp}.db')
+        shutil.copy2(self.db_path, backup_path)
+        self.logger.info(f"Database backed up to {backup_path}")
+        return backup_path
+    
+    def export_database(self, export_path: str) -> str:
+        """
+        Exports the database to a zip file containing:
+        - Excel files for each table
+        - JSON schema file
+        - Metadata file
+        """
+        try:
+            # Create a temporary directory for export files
+            temp_dir = "temp_export"
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+            
+            conn = sqlite3.connect(self.db_path)
+            
+            # Export each table to Excel
+            for table_name in self.SCHEMAS.keys():
+                df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+                excel_path = os.path.join(temp_dir, f"{table_name}.xlsx")
+                df.to_excel(excel_path, index=False)
+            
+            # Create metadata file
+            metadata = {
+                'schema_version': self.SCHEMA_VERSION,
+                'export_date': datetime.now().isoformat(),
+                'tables': list(self.SCHEMAS.keys())
+            }
+            with open(os.path.join(temp_dir, 'metadata.json'), 'w') as f:
+                json.dump(metadata, f)
+            
+            # Create schema file
+            with open(os.path.join(temp_dir, 'schema.json'), 'w') as f:
+                json.dump(self.SCHEMAS, f)
+            
+            # Create zip file
+            with zipfile.ZipFile(export_path, 'w') as zipf:
+                for root, _, files in os.walk(temp_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.basename(file_path)
+                        zipf.write(file_path, arcname)
+            
+            self.logger.info(f"Database exported to {export_path}")
+            return export_path
+            
+        except Exception as e:
+            self.logger.error(f"Export failed: {str(e)}")
+            raise
+            
+        finally:
+            if 'conn' in locals():
+                conn.close()
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+    
+    def import_database(self, import_path: str, validate: bool = True) -> bool:
+        """
+        Imports database from a zip file while maintaining data consistency
+        """
+        try:
+            # Create temporary directory for import
+            temp_dir = "temp_import"
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+            
+            # Extract zip file
+            with zipfile.ZipFile(import_path, 'r') as zipf:
+                zipf.extractall(temp_dir)
+            
+            # Validate import data
+            if validate:
+                self._validate_import(temp_dir)
+            
+            # Create backup before import
+            self.backup_database()
+            
+            # Import data
+            conn = sqlite3.connect(self.db_path)
+            for table_name in self.SCHEMAS.keys():
+                excel_path = os.path.join(temp_dir, f"{table_name}.xlsx")
+                if os.path.exists(excel_path):
+                    df = pd.read_excel(excel_path)
+                    df.to_sql(table_name, conn, if_exists='replace', index=False)
+            
+            self.logger.info("Database import completed successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Import failed: {str(e)}")
+            raise
+            
+        finally:
+            if 'conn' in locals():
+                conn.close()
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+    
+    def _validate_import(self, import_dir: str) -> bool:
+        """
+        Validates import data against schema
+        """
+        # Check metadata
+        with open(os.path.join(import_dir, 'metadata.json'), 'r') as f:
+            metadata = json.load(f)
+            if metadata['schema_version'] != self.SCHEMA_VERSION:
+                raise ValueError(f"Schema version mismatch. Expected {self.SCHEMA_VERSION}, got {metadata['schema_version']}")
+        
+        # Check schema
+        with open(os.path.join(import_dir, 'schema.json'), 'r') as f:
+            import_schema = json.load(f)
+            if import_schema != self.SCHEMAS:
+                raise ValueError("Schema mismatch between import and current database")
+        
+        # Validate data in Excel files
+        for table_name in self.SCHEMAS.keys():
+            excel_path = os.path.join(import_dir, f"{table_name}.xlsx")
+            if not os.path.exists(excel_path):
+                raise FileNotFoundError(f"Missing table data: {table_name}")
+            
+            df = pd.read_excel(excel_path)
+            expected_columns = set(self.SCHEMAS[table_name].keys())
+            actual_columns = set(df.columns)
+            
+            if not expected_columns.issubset(actual_columns):
+                missing_columns = expected_columns - actual_columns
+                raise ValueError(f"Missing columns in {table_name}: {missing_columns}")
+        
+        return True
+
+    def get_schema_info(self) -> Dict[str, Any]:
+        """
+        Returns current schema information
+        """
+        return {
+            'version': self.SCHEMA_VERSION,
+            'tables': self.SCHEMAS,
+            'backup_location': self.backup_dir
+        }
 
 def save_uploaded_file(uploaded_file, directory):
     if uploaded_file is not None:
@@ -2945,119 +3359,7 @@ def insert_student_info(c, form_data, file_paths):
     )
     
     c.execute(insert_query, params)
-
-
-
-def migrate_student_auth():
-    """
-    Migrates the student_info table to add authentication columns without losing existing data.
-    """
-    conn = sqlite3.connect('student_registration.db')
-    c = conn.cursor()
     
-    try:
-        # Start transaction
-        c.execute('BEGIN TRANSACTION')
-        
-        # Check existing columns
-        c.execute('PRAGMA table_info(student_info)')
-        existing_columns = [column[1] for column in c.fetchall()]
-        
-        # Add new columns if they don't exist
-        new_columns = {
-            'password': 'TEXT',
-            'last_login': 'DATETIME',
-            'password_reset_required': 'BOOLEAN DEFAULT 1'
-        }
-        
-        for column_name, column_type in new_columns.items():
-            if column_name not in existing_columns:
-                c.execute(f'ALTER TABLE student_info ADD COLUMN {column_name} {column_type}')
-        
-        # Set default passwords for existing students (if any)
-        # Uses first 4 characters of student_id + first 4 characters of surname
-        c.execute('''
-            UPDATE student_info 
-            SET password = LOWER(SUBSTR(student_id, 1, 4) || SUBSTR(surname, 1, 4)),
-                password_reset_required = 1
-            WHERE password IS NULL
-        ''')
-        
-        # Commit transaction
-        conn.commit()
-        print("Migration completed successfully")
-        
-    except sqlite3.Error as e:
-        # Rollback in case of error
-        conn.rollback()
-        print(f"An error occurred: {e}")
-        raise
-    
-    finally:
-        conn.close()
-
-# Add this to your init_db() function
-def update_init_db():
-    """
-    Updates the init_db() function to include the new columns.
-    """
-    conn = sqlite3.connect('student_registration.db')
-    c = conn.cursor()
-    
-    try:
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS student_info (
-                student_id TEXT PRIMARY KEY,
-                surname TEXT,
-                other_names TEXT,
-                date_of_birth DATE,
-                place_of_birth TEXT,
-                home_town TEXT,
-                residential_address TEXT,
-                postal_address TEXT,
-                email TEXT,
-                telephone TEXT,
-                ghana_card_id TEXT,
-                nationality TEXT,
-                marital_status TEXT,
-                gender TEXT,
-                religion TEXT,
-                denomination TEXT,
-                disability_status TEXT,
-                disability_description TEXT,
-                guardian_name TEXT,
-                guardian_relationship TEXT,
-                guardian_occupation TEXT,
-                guardian_address TEXT,
-                guardian_telephone TEXT,
-                previous_school TEXT,
-                qualification_type TEXT,
-                completion_year TEXT,
-                aggregate_score TEXT,
-                ghana_card_path TEXT,
-                passport_photo_path TEXT,
-                transcript_path TEXT,
-                certificate_path TEXT,
-                receipt_path TEXT,
-                receipt_amount REAL DEFAULT 0.0,
-                approval_status TEXT DEFAULT 'pending',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                programme TEXT,
-                password TEXT,
-                last_login DATETIME,
-                password_reset_required BOOLEAN DEFAULT 1
-            )
-        ''')
-        conn.commit()
-        
-    except sqlite3.Error as e:
-        print(f"An error occurred: {e}")
-        raise
-        
-    finally:
-        conn.close()
-
-
 
 
 def main():
@@ -3150,6 +3452,4 @@ def main():
 
 if __name__ == "__main__":
     init_db()
-    migrate_student_auth()
-    update_init_db()
     main()
