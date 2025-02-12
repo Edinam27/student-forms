@@ -1854,6 +1854,57 @@ def show_pending_approvals():
             
 
 
+# Helper functions for disability status handling
+def get_disability_status_display(status):
+    """
+    Convert database disability status to display format
+    Returns "None" or "Yes" for display in selectbox
+    """
+    if status is None or str(status).lower() in ['none', 'no', '']:
+        return "None"
+    return "Yes"
+
+def get_disability_status_index(status):
+    """
+    Get the correct index for disability status selectbox
+    Returns 0 for None/No/empty and 1 for Yes
+    """
+    if status is None or str(status).lower() in ['none', 'no', '']:
+        return 0  # Index for "None"
+    return 1  # Index for "Yes"
+
+# Update the disability status section in manage_student_records()
+def update_disability_fields(student):
+    """
+    Handle disability status fields in the student record form
+    Returns dictionary with updated disability fields
+    """
+    edited_data = {}
+    
+    # Convert database value to display format
+    current_status = get_disability_status_display(student["disability_status"])
+    
+    # Create selectbox with correct initial value
+    edited_data["disability_status"] = st.selectbox(
+        "Disability Status",
+        ["None", "Yes"],
+        index=get_disability_status_index(current_status),
+        key=f"edit_disability_{student['student_id']}"
+    )
+    
+    # Show description field if status is "Yes"
+    if edited_data["disability_status"] == "Yes":
+        edited_data["disability_description"] = st.text_area(
+            "Disability Description",
+            value=student["disability_description"] or "",
+            key=f"edit_disability_desc_{student['student_id']}"
+        )
+    else:
+        edited_data["disability_description"] = "None"
+    
+    return edited_data
+
+
 def manage_student_records():
     st.subheader("Student Records Management")
     
@@ -2076,8 +2127,8 @@ def manage_student_records():
                                 edited_data['place_of_birth'], edited_data['home_town'],
                                 edited_data['nationality'], edited_data['gender'],
                                 edited_data['marital_status'], edited_data['religion'],
-                                edited_data['denomination'], edited_data['disability_status'],
-                                edited_data.get('disability_description', 'None'),
+                                edited_data["disability_status"],
+                                edited_data.get("disability_description", "None"),
                                 edited_data['residential_address'], edited_data['postal_address'],
                                 edited_data['email'], edited_data['telephone'],
                                 edited_data['ghana_card_id'], edited_data['guardian_name'],
