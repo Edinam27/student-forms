@@ -1370,7 +1370,9 @@ def admin_dashboard():
 
 def zip_uploads_folder():
     """
-    Zips the entire 'uploads' folder preserving its structure exactly as is.
+    Creates a zip archive of the entire 'uploads' folder while preserving the original file names as saved on disk.
+    For course registration receipts, their file names will be maintained exactly as in the uploads folder.
+    For student information documents, the archived file names will directly use the name as stored in their file path.
     
     Returns:
         The filename of the generated zip file, or None if the uploads folder does not exist.
@@ -1378,11 +1380,21 @@ def zip_uploads_folder():
     uploads_dir = "uploads"
     if not os.path.exists(uploads_dir):
         return None
+
+    # Generate a timestamped zip file name.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_name = f"uploads_folder_{timestamp}"
-    zip_filename = f"{base_name}.zip"
-    # This will create a zip archive with the base directory inside it as it is.
-    shutil.make_archive(base_name=base_name, format="zip", root_dir=uploads_dir)
+    zip_filename = f"uploads_folder_{timestamp}.zip"
+
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Walk the uploads folder tree.
+        for root, dirs, files in os.walk(uploads_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                # Determine archive name: use relative path from the uploads folder.
+                # This ensures that for student information documents the file is named as in its stored path,
+                # and documents for course registration receipts are also maintained with their original names.
+                arcname = os.path.relpath(file_path, start=uploads_dir)
+                zipf.write(file_path, arcname)
     return zip_filename
 
 def manage_database():
