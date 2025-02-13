@@ -2038,9 +2038,12 @@ def manage_student_records():
                         edited_data['marital_status'] = st.selectbox("Marital Status", ["Single", "Married", "Divorced", "Widowed"], index=["Single", "Married", "Divorced", "Widowed"].index(student['marital_status']), key=f"edit_marital_{student['student_id']}")
                         edited_data['religion'] = st.text_input("Religion", student['religion'], key=f"edit_religion_{student['student_id']}")
                         edited_data['denomination'] = st.text_input("Denomination", student['denomination'], key=f"edit_denom_{student['student_id']}")
-                        edited_data['disability_status'] = st.selectbox("Disability Status", ["None", "Yes"], index=["None", "Yes"].index(student['disability_status']), key=f"edit_disability_{student['student_id']}")
-                        if edited_data['disability_status'] == "Yes":
-                            edited_data['disability_description'] = st.text_area("Disability Description", student['disability_description'], key=f"edit_disability_desc_{student['student_id']}")
+                        # Ensure the value exists in the list before using index()
+                        disability_options = ["None", "Yes"]
+                        current_status = student.get('disability_status', "None")  # Default to "None" if missing or None
+                        index = disability_options.index(current_status) if current_status in disability_options else 0
+                        
+                        edited_data['disability_status'] = st.selectbox("Disability Status", disability_options, index=index, key=f"edit_disability_{student['student_id']}")
                     
                     st.subheader("Contact Information")
                     col3, col4 = st.columns(2)
