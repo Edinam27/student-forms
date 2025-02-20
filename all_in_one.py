@@ -40,7 +40,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-
 # Email configuration constants (replace with your actual SMTP server details)
 SMTP_SERVER = "smtp.example.com"  # e.g., "smtp.gmail.com"
 SMTP_PORT = 587  # Typical port for TLS
