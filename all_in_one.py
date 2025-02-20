@@ -40,6 +40,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 # Email configuration constants (replace with your actual SMTP server details)
 SMTP_SERVER = "smtp.example.com"  # e.g., "smtp.gmail.com"
 SMTP_PORT = 587  # Typical port for TLS
@@ -1709,22 +1710,10 @@ def manage_database():
 
 def upload_data_from_excel_and_docs():
     """
-    Bulk upload function updated to accept two Excel files:
-      - One for student information (now preserving document path values if provided)
-      - One for course registration data (authoritative for programme and other registration data)
-    Optionally uploads a zip file for related documents.
-    The zip file is saved to the uploads folder as-is.
+    Bulk upload function updated to accept two Excel files and to insert any absent columns
+    into the DataFrames before processing the data. This handles entries from older app versions.
     """
-    import pandas as pd
-    import sqlite3
-    import os
-    import shutil
-    import streamlit as st
-    from datetime import datetime
-
     st.header("Bulk Upload Data from Excel & Documents")
-
-    # Use two file uploaders: one for student info and one for course registration data.
     st.markdown("### Excel Files Upload")
     col1, col2 = st.columns(2)
     with col1:
@@ -1739,7 +1728,6 @@ def upload_data_from_excel_and_docs():
             type=["xlsx", "xls"],
             key="reg_excel",
         )
-
     docs_zip = st.file_uploader("Upload Zip File of Documents (Optional)", type=["zip"])
 
     if st.button("Process Bulk Upload"):
@@ -1754,16 +1742,44 @@ def upload_data_from_excel_and_docs():
             student_df = pd.read_excel(student_excel)
             reg_df = pd.read_excel(reg_excel)
 
+            # Define expected columns for student data.
+            expected_student_columns = [
+                "student_id", "surname", "other_names", "date_of_birth", "place_of_birth",
+                "home_town", "residential_address", "postal_address", "email", "telephone",
+                "ghana_card_id", "nationality", "marital_status", "gender", "religion",
+                "denomination", "disability_status", "disability_description", "guardian_name",
+                "guardian_relationship", "guardian_occupation", "guardian_address",
+                "guardian_telephone", "previous_school", "qualification_type", "completion_year",
+                "aggregate_score", "ghana_card_path", "passport_photo_path", "transcript_path",
+                "certificate_path", "receipt_path", "programme"
+            ]
+            # Insert missing columns with default values.
+            for col in expected_student_columns:
+                if col not in student_df.columns:
+                    # For file path columns use None instead of empty string.
+                    if col in ["ghana_card_path", "passport_photo_path", "transcript_path", "certificate_path", "receipt_path", "programme"]:
+                        student_df[col] = None
+                    else:
+                        student_df[col] = ""
+
+            # Define expected columns for course registration data.
+            expected_reg_columns = [
+                "student_id", "index_number", "programme", "specialization", "level",
+                "session", "academic_year", "semester", "courses", "total_credits",
+                "date_registered", "approval_status", "receipt_path", "receipt_amount"
+            ]
+            for col in expected_reg_columns:
+                if col not in reg_df.columns:
+                    if col in ["receipt_path"]:
+                        reg_df[col] = None
+                    elif col == "receipt_amount":
+                        reg_df[col] = 0.0
+                    else:
+                        reg_df[col] = ""
+            
+            # Insert student data into the database.
             conn = sqlite3.connect("student_registration.db")
             c = conn.cursor()
-
-            # Updated: Insert student data including document path fields.
-            # Expected Excel columns: student_id, surname, other_names, date_of_birth, place_of_birth,
-            # home_town, residential_address, postal_address, email, telephone, ghana_card_id, nationality,
-            # marital_status, gender, religion, denomination, disability_status, disability_description,
-            # guardian_name, guardian_relationship, guardian_occupation, guardian_address, guardian_telephone,
-            # previous_school, qualification_type, completion_year, aggregate_score,
-            # ghana_card_path, passport_photo_path, transcript_path, certificate_path, receipt_path.
             insert_student_query = """
                 INSERT OR IGNORE INTO student_info (
                     student_id, surname, other_names, date_of_birth, place_of_birth,
@@ -1773,9 +1789,13 @@ def upload_data_from_excel_and_docs():
                     guardian_name, guardian_relationship, guardian_occupation,
                     guardian_address, guardian_telephone, previous_school,
                     qualification_type, completion_year, aggregate_score,
-                    ghana_card_path, passport_photo_path, transcript_path, certificate_path, receipt_path,
-                    programme
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ghana_card_path, passport_photo_path, transcript_path,
+                    certificate_path, receipt_path, receipt_amount,
+                    approval_status, created_at, programme
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
             """
             for _, row in student_df.iterrows():
                 params = (
@@ -1811,11 +1831,13 @@ def upload_data_from_excel_and_docs():
                     row.get("transcript_path"),
                     row.get("certificate_path"),
                     row.get("receipt_path"),
-                    "",  # Programme will be updated from course registration data
+                    0.0,   # receipt_amount default value
+                    "pending",
+                    datetime.now(),
+                    row.get("programme", "")
                 )
                 c.execute(insert_student_query, params)
-
-            # Insert course registration data.
+            
             insert_reg_query = """
                 INSERT INTO course_registration (
                     student_id, index_number, programme, specialization, level,
@@ -1827,7 +1849,7 @@ def upload_data_from_excel_and_docs():
                 params = (
                     row.get("student_id"),
                     row.get("index_number"),
-                    row.get("programme"),  # authoritative programme data
+                    row.get("programme"),
                     row.get("specialization"),
                     row.get("level"),
                     row.get("session"),
@@ -1841,24 +1863,22 @@ def upload_data_from_excel_and_docs():
                     row.get("receipt_amount", 0.0),
                 )
                 c.execute(insert_reg_query, params)
-                # Update the student's programme field based on the registration Excel.
+                # Update the student's programme field based on the registration data.
                 update_query = (
                     "UPDATE student_info SET programme = ? WHERE student_id = ?"
                 )
                 c.execute(update_query, (row.get("programme"), row.get("student_id")))
-
+            
             conn.commit()
             conn.close()
-
             st.success("Excel data uploaded successfully!")
         except Exception as e:
             st.error(f"Error processing Excel files: {e}")
 
-        # Process the documents zip file if provided.
         if docs_zip:
-            # Save the zip file as-is in the uploads folder.
             saved_zip_path = save_uploaded_file(docs_zip, "uploads")
             st.success("Documents zip uploaded successfully!")
+
 
 
 def generate_reports():
