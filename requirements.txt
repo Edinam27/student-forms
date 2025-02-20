@@ -8,3 +8,4 @@ PyMuPDF
 pathlib
 PyMuPDF
 openpyxl
+psutil
