@@ -1,15 +1,24 @@
 import streamlit as st
-import sqlite3
+import sqlite3, io, os
 from datetime import datetime, timedelta
 import pandas as pd
 import os
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table as RLTable, TableStyle, Image
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table as RLTable,
+    TableStyle,
+    Image,
+)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, cm
+from reportlab.lib.units import inch, cm, mm
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib import colors
 from PIL import Image as PILImage
+from reportlab.platypus import Image as RLImage
 import io
 import zipfile
 from pathlib import Path
@@ -36,7 +45,7 @@ st.set_page_config(
     page_title="Student Registration System",
     page_icon="🎓",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 
@@ -72,8 +81,6 @@ def get_db_connection(max_retries=5, retry_delay=1):
                 time.sleep(retry_delay)
             else:
                 raise
-
-
 
 
 def init_db():
@@ -648,12 +655,12 @@ def generate_student_info_pdf(data):
     # Header with Logo
     header_data = [
         [
-            Image("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
+            RLImage("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
             Paragraph(
                 "UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA<br/>IPS DIRECTORATE",
                 styles["CustomTitle"],
             ),
-            Image("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
+            RLImage("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
         ]
     ]
     # Use RLTable instead of Table
@@ -870,33 +877,48 @@ def generate_course_registration_pdf(data):
     student_info = c.fetchone()
     conn.close()
 
+    # Header with logo and student photo
     header_elements = []
+    
+    # First column: UPSA logo
+    header_elements.append(
+        RLImage("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch)
+    )
+    
+    # Middle column: Title
+    header_elements.append(
+        Paragraph(
+            "UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA<br/>Proof of Registration",
+            styles["CustomTitle"],
+        )
+    )
+    
+    # Third column: Student photo or UPSA logo if no photo
     if student_info and student_info[0] and os.path.exists(student_info[0]):
         try:
+            # Create a BytesIO object to hold the image data
+            img_buffer = io.BytesIO()
+            
+            # Open, resize and save the image to the buffer
             with PILImage.open(student_info[0]) as img:
-                img.thumbnail((100, 100))
-                img_buffer = io.BytesIO()
-                img.save(img_buffer, format="JPEG")
+                img.thumbnail((100, 100))  # Resize while maintaining aspect ratio
+                img.save(img_buffer, format=img.format)
                 img_buffer.seek(0)
-                header_elements.append(Image(img_buffer))
+            
+            # Add the image from the buffer
+            header_elements.append(RLImage(img_buffer, width=1.2 * inch, height=1.2 * inch))
         except Exception as e:
+            # If there's an error, use the UPSA logo instead
             header_elements.append(
-                Image("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch)
+                RLImage("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch)
             )
     else:
+        # If no photo, use the UPSA logo
         header_elements.append(
-            Image("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch)
+            RLImage("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch)
         )
-
-    header_elements.extend(
-        [
-            Paragraph(
-                "UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA<br/>Proof of Registration",
-                styles["CustomTitle"],
-            ),
-            Image("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
-        ]
-    )
+    
+    # Create the header table
     header_table = RLTable([header_elements], [2 * inch, 4 * inch, 2 * inch])
     header_table.setStyle(
         TableStyle(
@@ -1140,6 +1162,7 @@ def review_course_registration(form_data):
             st.write(f"**Total Credit Hours:** {form_data['total_credits']}")
     else:
         st.warning("No courses selected")
+        
 
 
 def save_student_info(form_data):
@@ -1165,7 +1188,9 @@ def student_info_form():
         form_data["student_id"] = student_id_input.strip()
         # Check if student info already exists.
         if rc_manager.check_existing_student_info(form_data["student_id"]):
-            st.warning("You have already submitted your student information. Please proceed to course registration or contact administration for changes.")
+            st.warning(
+                "You have already submitted your student information. Please proceed to course registration or contact administration for changes."
+            )
             st.stop()
     else:
         st.info("Please enter your Student ID to begin.")
@@ -1182,7 +1207,9 @@ def student_info_form():
         form_data["nationality"] = st.text_input("Nationality")
     with col2:
         form_data["gender"] = st.selectbox("Gender", ["Male", "Female", "Other"])
-        form_data["marital_status"] = st.selectbox("Marital Status", ["Single", "Married", "Divorced", "Widowed"])
+        form_data["marital_status"] = st.selectbox(
+            "Marital Status", ["Single", "Married", "Divorced", "Widowed"]
+        )
         form_data["religion"] = st.text_input("Religion")
         form_data["denomination"] = st.text_input("Denomination")
         disability_status = st.selectbox("Disability Status", ["None", "Yes"])
@@ -1225,7 +1252,9 @@ def student_info_form():
     col9, col10 = st.columns(2)
     with col9:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
-        ghana_card = st.file_uploader("Upload Ghana Card/Birth Certificate", type=["pdf", "jpg", "png"])
+        ghana_card = st.file_uploader(
+            "Upload Ghana Card/Birth Certificate", type=["pdf", "jpg", "png"]
+        )
         passport_photo = st.file_uploader("Upload Passport Photo", type=["jpg", "png"])
         # Removed Transcript upload
         certificate = st.file_uploader("Upload Certificate", type=["pdf"])
@@ -1269,7 +1298,9 @@ def student_info_form():
                     c = conn.cursor()
                     insert_student_info(c, st.session_state.form_data, file_paths)
                     conn.commit()
-                    st.success("Information submitted successfully! Pending admin approval.")
+                    st.success(
+                        "Information submitted successfully! Pending admin approval."
+                    )
                     st.session_state.review_mode = False
                 except sqlite3.IntegrityError:
                     st.error("Student ID already exists!")
@@ -1279,9 +1310,18 @@ def student_info_form():
                     conn.close()
 
 
-def validate_file(uploaded_file, max_size_mb=5):
-    if uploaded_file.size > max_size_mb * 1024 * 1024:
-        raise ValueError(f"File size exceeds {max_size_mb}MB limit")
+def validate_file(uploaded_file, max_size_mb=6):
+    """
+    Validate and compress file if needed.
+    Returns the file data (possibly compressed) or raises an error.
+    """
+    # Files will be compressed if they exceed the size limit
+    compressed_data, _, was_compressed = compress_uploaded_file(uploaded_file, max_size_mb)
+    
+    if was_compressed:
+        st.info(f"File was compressed to meet the {max_size_mb}MB size limit")
+        
+    return compressed_data
 
 
 def download_all_documents():
@@ -1350,12 +1390,25 @@ def download_all_documents():
                     _, ext = os.path.splitext(receipt_path)
                     archive_path = f"{reg_dir}/registration_{reg_id}_receipt{ext}"
                     zipf.write(receipt_path, archive_path)
+                    
+        # Use the cleanup handler context manager
+        with zip_cleanup_handler.cleanup_after_download(zip_filename):
+            with open(zip_filename, "rb") as f:
+                st.download_button(
+                    label="Download Documents ZIP",
+                    data=f,
+                    file_name=zip_filename,
+                    mime="application/zip"
+                )
 
         return zip_filename
+    
+
 
     except Exception as e:
         st.error(f"Error creating zip file: {str(e)}")
         return None
+    
 
     finally:
         conn.close()
@@ -1372,15 +1425,19 @@ def course_registration_form():
     if not form_data["student_id"]:
         st.warning("Please enter your Student ID")
         st.stop()
-        
+
     # Prevent duplicate registration
     if rc_manager.check_existing_course_registration(form_data["student_id"]):
-        st.warning("You have already submitted your course registration. Duplicate submissions are not allowed.")
+        st.warning(
+            "You have already submitted your course registration. Duplicate submissions are not allowed."
+        )
         st.stop()
 
     conn = sqlite3.connect("student_registration.db")
     c = conn.cursor()
-    c.execute("SELECT * FROM student_info WHERE student_id = ?", (form_data["student_id"],))
+    c.execute(
+        "SELECT * FROM student_info WHERE student_id = ?", (form_data["student_id"],)
+    )
     student_info = c.fetchone()
     if student_info:
         st.markdown("---")
@@ -1401,16 +1458,26 @@ def course_registration_form():
             st.write(f"**Phone:** {student_info[9]}")
         col3, col4 = st.columns(2)
         with col3:
-            form_data["programme"] = st.selectbox("Programme", ["CIMG", "CIM-UK", "ICAG", "ACCA"])
+            form_data["programme"] = st.selectbox(
+                "Programme", ["CIMG", "CIM-UK", "ICAG", "ACCA"]
+            )
             program_levels = list(get_program_courses(form_data["programme"]).keys())
             form_data["level"] = st.selectbox("Level/Part", program_levels)
             form_data["specialization"] = st.text_input("Specialization (Optional)")
         with col4:
-            form_data["session"] = st.selectbox("Session", ["Morning", "Evening", "Weekend"])
-            form_data["academic_year"] = st.selectbox("Academic Year", [f"{year}-{year+1}" for year in range(2025, 2035)])
-            form_data["semester"] = st.selectbox("Semester", ["First", "Second", "Third"])
+            form_data["session"] = st.selectbox(
+                "Session", ["Morning", "Evening", "Weekend"]
+            )
+            form_data["academic_year"] = st.selectbox(
+                "Academic Year", [f"{year}-{year+1}" for year in range(2025, 2035)]
+            )
+            form_data["semester"] = st.selectbox(
+                "Semester", ["First", "Second", "Third"]
+            )
         st.subheader("Course Selection")
-        available_courses = get_program_courses(form_data["programme"]).get(form_data["level"], [])
+        available_courses = get_program_courses(form_data["programme"]).get(
+            form_data["level"], []
+        )
         selected_courses = st.multiselect(
             "Select Courses",
             available_courses,
@@ -1419,18 +1486,34 @@ def course_registration_form():
         total_credits = sum([int(course.split("|")[2]) for course in selected_courses])
         form_data["courses"] = "\n".join(selected_courses)
         form_data["total_credits"] = total_credits
-        st.text_area("Selected Courses", form_data["courses"], height=150, disabled=True)
-        st.number_input("Total Credit Hours", value=total_credits, min_value=0, max_value=24, disabled=True)
+        st.text_area(
+            "Selected Courses", form_data["courses"], height=150, disabled=True
+        )
+        st.number_input(
+            "Total Credit Hours",
+            value=total_credits,
+            min_value=0,
+            max_value=24,
+            disabled=True,
+        )
         if total_credits > 24:
             st.error("Total credits cannot exceed 24 hours!")
             return
         st.subheader("📎 Payment Information (Optional)")
         col5, col6 = st.columns(2)
         with col5:
-            receipt = st.file_uploader("Upload Payment Receipt (Optional)", type=["pdf", "jpg", "png"])
-            form_data["receipt_path"] = save_uploaded_file(receipt, "uploads") if receipt else None
+            receipt = st.file_uploader(
+                "Upload Payment Receipt (Optional)", type=["pdf", "jpg", "png"]
+            )
+            form_data["receipt_path"] = (
+                save_uploaded_file(receipt, "uploads") if receipt else None
+            )
         with col6:
-            form_data["receipt_amount"] = st.number_input("Receipt Amount (GHS)", min_value=0.0, format="%.2f") if receipt else 0.0
+            form_data["receipt_amount"] = (
+                st.number_input("Receipt Amount (GHS)", min_value=0.0, format="%.2f")
+                if receipt
+                else 0.0
+            )
         if st.button("Review Registration"):
             review_course_registration(form_data)
         if st.button("Confirm and Submit"):
@@ -1487,7 +1570,8 @@ def admin_dashboard():
             "Generate Reports",
             "Send Emails",
             "Notifications",
-            "System Monitor"
+            "ID Card Generator",
+            "System Monitor",
         ],  # Added Notifications
     )
 
@@ -1509,6 +1593,8 @@ def admin_dashboard():
         send_emails()
     elif menu == "Notifications":
         admin_notification_interface()
+    elif menu == "ID Card Generator":
+        id_card_generator_ui()
     elif menu == "System Monitor":
         st.subheader("System Resource Monitor")
         metrics = system_resource_monitor()
@@ -1516,10 +1602,22 @@ def admin_dashboard():
         st.write(f"Memory Usage: {metrics['memory_percent']}%")
         st.write(f"Disk Usage: {metrics['disk_percent']}%")
         if should_backup():
-            st.warning("Backup recommended: Either it has been over 30 days since the last backup or disk usage is ≥ 90%.")
+            st.warning(
+                "Backup recommended: Either it has been over 30 days since the last backup or disk usage is ≥ 90%."
+            )
         if st.button("Perform Backup Now"):
             backup_file = perform_backup()
             st.success(f"Backup performed successfully! Backup file: {backup_file}")
+            try:
+                with open(backup_file, "rb") as f:
+                    st.download_button(
+                        label="Download Backup",
+                        data=f,
+                        file_name=backup_file.split(os.sep)[-1],
+                        mime="application/zip",
+                    )
+            except Exception as e:
+                st.error(f"Error providing download: {str(e)}")
 
 
 def zip_uploads_folder():
@@ -1743,29 +1841,72 @@ def upload_data_from_excel_and_docs():
 
             # Define expected columns for student data.
             expected_student_columns = [
-                "student_id", "surname", "other_names", "date_of_birth", "place_of_birth",
-                "home_town", "residential_address", "postal_address", "email", "telephone",
-                "ghana_card_id", "nationality", "marital_status", "gender", "religion",
-                "denomination", "disability_status", "disability_description", "guardian_name",
-                "guardian_relationship", "guardian_occupation", "guardian_address",
-                "guardian_telephone", "previous_school", "qualification_type", "completion_year",
-                "aggregate_score", "ghana_card_path", "passport_photo_path", "transcript_path",
-                "certificate_path", "receipt_path", "programme"
+                "student_id",
+                "surname",
+                "other_names",
+                "date_of_birth",
+                "place_of_birth",
+                "home_town",
+                "residential_address",
+                "postal_address",
+                "email",
+                "telephone",
+                "ghana_card_id",
+                "nationality",
+                "marital_status",
+                "gender",
+                "religion",
+                "denomination",
+                "disability_status",
+                "disability_description",
+                "guardian_name",
+                "guardian_relationship",
+                "guardian_occupation",
+                "guardian_address",
+                "guardian_telephone",
+                "previous_school",
+                "qualification_type",
+                "completion_year",
+                "aggregate_score",
+                "ghana_card_path",
+                "passport_photo_path",
+                "transcript_path",
+                "certificate_path",
+                "receipt_path",
+                "programme",
             ]
             # Insert missing columns with default values.
             for col in expected_student_columns:
                 if col not in student_df.columns:
                     # For file path columns use None instead of empty string.
-                    if col in ["ghana_card_path", "passport_photo_path", "transcript_path", "certificate_path", "receipt_path", "programme"]:
+                    if col in [
+                        "ghana_card_path",
+                        "passport_photo_path",
+                        "transcript_path",
+                        "certificate_path",
+                        "receipt_path",
+                        "programme",
+                    ]:
                         student_df[col] = None
                     else:
                         student_df[col] = ""
 
             # Define expected columns for course registration data.
             expected_reg_columns = [
-                "student_id", "index_number", "programme", "specialization", "level",
-                "session", "academic_year", "semester", "courses", "total_credits",
-                "date_registered", "approval_status", "receipt_path", "receipt_amount"
+                "student_id",
+                "index_number",
+                "programme",
+                "specialization",
+                "level",
+                "session",
+                "academic_year",
+                "semester",
+                "courses",
+                "total_credits",
+                "date_registered",
+                "approval_status",
+                "receipt_path",
+                "receipt_amount",
             ]
             for col in expected_reg_columns:
                 if col not in reg_df.columns:
@@ -1775,7 +1916,7 @@ def upload_data_from_excel_and_docs():
                         reg_df[col] = 0.0
                     else:
                         reg_df[col] = ""
-            
+
             # Insert student data into the database.
             conn = sqlite3.connect("student_registration.db")
             c = conn.cursor()
@@ -1830,13 +1971,13 @@ def upload_data_from_excel_and_docs():
                     row.get("transcript_path"),
                     row.get("certificate_path"),
                     row.get("receipt_path"),
-                    0.0,   # receipt_amount default value
+                    0.0,  # receipt_amount default value
                     "pending",
                     datetime.now(),
-                    row.get("programme", "")
+                    row.get("programme", ""),
                 )
                 c.execute(insert_student_query, params)
-            
+
             insert_reg_query = """
                 INSERT INTO course_registration (
                     student_id, index_number, programme, specialization, level,
@@ -1867,7 +2008,7 @@ def upload_data_from_excel_and_docs():
                     "UPDATE student_info SET programme = ? WHERE student_id = ?"
                 )
                 c.execute(update_query, (row.get("programme"), row.get("student_id")))
-            
+
             conn.commit()
             conn.close()
             st.success("Excel data uploaded successfully!")
@@ -1877,7 +2018,6 @@ def upload_data_from_excel_and_docs():
         if docs_zip:
             saved_zip_path = save_uploaded_file(docs_zip, "uploads")
             st.success("Documents zip uploaded successfully!")
-
 
 
 def generate_reports():
@@ -1992,68 +2132,1292 @@ def generate_reports():
                 st.info("No course registration approval status data available")
 
     elif report_type == "Payment Statistics":
-        # Receipt statistics
-        receipt_stats = pd.read_sql_query(
-            """
+        # Import and use the enhanced payment statistics module
+        payment_statistics_section()
+
+        # Close the database connection
+        conn.close()
+
+
+import os
+import io
+import sqlite3
+import pandas as pd
+from PIL import Image, ImageDraw, ImageFont
+import qrcode
+from datetime import datetime, timedelta
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
+
+
+class IDCardGenerator:
+    """
+    Generates student ID cards with customizable templates
+    """
+
+    def __init__(self, db_path="student_registration.db"):
+        self.db_path = db_path
+        self.card_width = 1050  # pixels
+        self.card_height = 650  # pixels
+        self.card_color = (255, 255, 255)  # white background
+        self.text_color = (0, 0, 0)  # black text
+        self.accent_color = (0, 51, 102)  # UPSA blue
+
+        # Ensure fonts directory exists
+        os.makedirs("fonts", exist_ok=True)
+
+        # Default font paths - will use system defaults if these don't exist
+        self.title_font_path = "fonts/Arial_Bold.ttf"
+        self.regular_font_path = "fonts/Arial.ttf"
+
+        # Try to load fonts, use default if not available
+        try:
+            self.title_font = ImageFont.truetype(self.title_font_path, 36)
+            self.subtitle_font = ImageFont.truetype(self.title_font_path, 24)
+            self.regular_font = ImageFont.truetype(self.regular_font_path, 20)
+            self.small_font = ImageFont.truetype(self.regular_font_path, 16)
+        except IOError:
+            # Use default font if custom font not available
+            self.title_font = ImageFont.load_default()
+            self.subtitle_font = ImageFont.load_default()
+            self.regular_font = ImageFont.load_default()
+            self.small_font = ImageFont.load_default()
+
+    def get_student_data(self, student_id=None, programme=None):
+        """
+        Retrieve student data from the database based on filters
+
+        Args:
+            student_id: Optional specific student ID
+            programme: Optional programme filter
+
+        Returns:
+            DataFrame with student information
+        """
+        conn = sqlite3.connect(self.db_path)
+
+        query = """
             SELECT 
-                CASE 
-                    WHEN receipt_path IS NOT NULL THEN 'With Receipt'
-                    ELSE 'Without Receipt'
-                END as receipt_status,
-                COUNT(*) as count,
-                COALESCE(AVG(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END), 0) as avg_amount
-            FROM student_info
-            GROUP BY CASE 
-                        WHEN receipt_path IS NOT NULL THEN 'With Receipt'
-                        ELSE 'Without Receipt'
-                    END
+                si.student_id, 
+                si.surname, 
+                si.other_names, 
+                si.programme,
+                si.passport_photo_path,
+                si.email,
+                si.telephone,
+                cr.index_number,
+                MAX(cr.date_registered) as registration_date
+            FROM 
+                student_info si
+            LEFT JOIN 
+                course_registration cr ON si.student_id = cr.student_id
+            WHERE 
+                si.approval_status = 'approved'
+        """
+
+        params = []
+
+        if student_id:
+            query += " AND si.student_id = ?"
+            params.append(student_id)
+
+        if programme:
+            query += " AND si.programme = ?"
+            params.append(programme)
+
+        query += " GROUP BY si.student_id"
+
+        df = pd.read_sql_query(query, conn, params=params)
+        conn.close()
+
+        return df
+
+    def generate_qr_code(self, data, size=200):
+        """Generate QR code with student data"""
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(data)
+        qr.make(fit=True)
+
+        img = qr.make_image(fill_color="black", back_color="white")
+        img = img.resize((size, size))
+
+        # Convert to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format="PNG")
+        img_bytes.seek(0)
+
+        return img_bytes
+
+    def create_id_card(self, student_data):
+        """
+        Create an ID card for a student
+
+        Args:
+            student_data: Dictionary with student information
+
+        Returns:
+            BytesIO object containing the ID card image
+        """
+        # Create blank card
+        card = Image.new("RGB", (self.card_width, self.card_height), self.card_color)
+        draw = ImageDraw.Draw(card)
+
+        # Add header with university name and logo
+        draw.rectangle([(0, 0), (self.card_width, 100)], fill=self.accent_color)
+        draw.text(
+            (self.card_width // 2, 50),
+            "UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA",
+            font=self.title_font,
+            fill=(255, 255, 255),
+            anchor="mm",
+        )
+
+        # Add student photo
+        photo_size = 300
+        photo_pos = (50, 150)
+
+        if student_data["passport_photo_path"] and os.path.exists(
+            student_data["passport_photo_path"]
+        ):
+            try:
+                photo = Image.open(student_data["passport_photo_path"])
+                photo = photo.resize((photo_size, photo_size))
+                card.paste(photo, photo_pos)
+
+                # Add border around photo
+                draw.rectangle(
+                    [photo_pos, (photo_pos[0] + photo_size, photo_pos[1] + photo_size)],
+                    outline=self.accent_color,
+                    width=5,
+                )
+            except Exception as e:
+                # If error loading photo, draw placeholder
+                draw.rectangle(
+                    [photo_pos, (photo_pos[0] + photo_size, photo_pos[1] + photo_size)],
+                    outline=self.accent_color,
+                    width=5,
+                    fill=(240, 240, 240),
+                )
+                draw.text(
+                    (photo_pos[0] + photo_size // 2, photo_pos[1] + photo_size // 2),
+                    "NO PHOTO",
+                    font=self.subtitle_font,
+                    fill=self.text_color,
+                    anchor="mm",
+                )
+        else:
+            # Draw placeholder if no photo
+            draw.rectangle(
+                [photo_pos, (photo_pos[0] + photo_size, photo_pos[1] + photo_size)],
+                outline=self.accent_color,
+                width=5,
+                fill=(240, 240, 240),
+            )
+            draw.text(
+                (photo_pos[0] + photo_size // 2, photo_pos[1] + photo_size // 2),
+                "NO PHOTO",
+                font=self.subtitle_font,
+                fill=self.text_color,
+                anchor="mm",
+            )
+
+        # Add student information
+        info_start_x = photo_pos[0] + photo_size + 50
+        info_start_y = 150
+        line_height = 40
+
+        # Student ID and name (larger font)
+        draw.text(
+            (info_start_x, info_start_y),
+            f"Student ID: {student_data['student_id']}",
+            font=self.subtitle_font,
+            fill=self.text_color,
+        )
+
+        draw.text(
+            (info_start_x, info_start_y + line_height),
+            f"Name: {student_data['surname']}, {student_data['other_names']}",
+            font=self.subtitle_font,
+            fill=self.text_color,
+        )
+
+        # Other details
+        draw.text(
+            (info_start_x, info_start_y + line_height * 2),
+            f"Programme: {student_data['programme']}",
+            font=self.regular_font,
+            fill=self.text_color,
+        )
+
+        if pd.notna(student_data["index_number"]) and student_data["index_number"]:
+            draw.text(
+                (info_start_x, info_start_y + line_height * 3),
+                f"Index Number: {student_data['index_number']}",
+                font=self.regular_font,
+                fill=self.text_color,
+            )
+
+        draw.text(
+            (info_start_x, info_start_y + line_height * 4),
+            f"Email: {student_data['email']}",
+            font=self.regular_font,
+            fill=self.text_color,
+        )
+
+        draw.text(
+            (info_start_x, info_start_y + line_height * 5),
+            f"Phone: {student_data['telephone']}",
+            font=self.regular_font,
+            fill=self.text_color,
+        )
+
+        # Generate and add QR code
+        qr_data = f"ID:{student_data['student_id']}\nName:{student_data['surname']}, {student_data['other_names']}\nProgramme:{student_data['programme']}"
+        qr_img_bytes = self.generate_qr_code(qr_data)
+        qr_img = Image.open(qr_img_bytes)
+
+        qr_pos = (self.card_width - 250, self.card_height - 250)
+        card.paste(qr_img, qr_pos)
+
+        # Add issue and expiry dates
+        today = datetime.now()
+        expiry = today + timedelta(days=365)  # 1 year validity
+
+        draw.text(
+            (50, self.card_height - 80),
+            f"Issue Date: {today.strftime('%d-%m-%Y')}",
+            font=self.small_font,
+            fill=self.text_color,
+        )
+
+        draw.text(
+            (50, self.card_height - 50),
+            f"Expiry Date: {expiry.strftime('%d-%m-%Y')}",
+            font=self.small_font,
+            fill=self.text_color,
+        )
+
+        # Add signature line
+        sig_start_x = 50
+        sig_start_y = self.card_height - 150
+        draw.line(
+            [(sig_start_x, sig_start_y), (sig_start_x + 200, sig_start_y)],
+            fill=self.text_color,
+            width=2,
+        )
+        draw.text(
+            (sig_start_x + 100, sig_start_y + 20),
+            "Student Signature",
+            font=self.small_font,
+            fill=self.text_color,
+            anchor="mm",
+        )
+
+        # Add footer
+        draw.rectangle(
+            [(0, self.card_height - 30), (self.card_width, self.card_height)],
+            fill=self.accent_color,
+        )
+        draw.text(
+            (self.card_width // 2, self.card_height - 15),
+            "This card remains the property of UPSA and must be returned upon request",
+            font=self.small_font,
+            fill=(255, 255, 255),
+            anchor="mm",
+        )
+
+        # Convert to bytes
+        img_bytes = io.BytesIO()
+        card.save(img_bytes, format="PNG")
+        img_bytes.seek(0)
+
+        return img_bytes
+
+    def create_pdf_from_cards(self, card_bytes_list, filename="id_cards.pdf"):
+        """
+        Create a PDF with multiple ID cards (4 per page)
+
+        Args:
+            card_bytes_list: List of BytesIO objects containing card images
+            filename: Output PDF filename
+
+        Returns:
+            Path to the generated PDF file
+        """
+        # A4 size in points
+        page_width, page_height = A4
+
+        # Create PDF
+        c = canvas.Canvas(filename, pagesize=A4)
+
+        cards_per_page = 4
+        cards_per_row = 2
+
+        # Calculate card size on PDF (in mm)
+        card_width_mm = 85  # Standard ID card width
+        card_height_mm = card_width_mm * (
+            self.card_height / self.card_width
+        )  # Maintain aspect ratio
+
+        # Calculate margins and spacing
+        margin_mm = 10
+        spacing_mm = 5
+
+        # Calculate positions
+        positions = []
+        for i in range(cards_per_page):
+            row = i // cards_per_row
+            col = i % cards_per_row
+
+            x = margin_mm + col * (card_width_mm + spacing_mm)
+            y = (
+                page_height / mm
+                - margin_mm
+                - card_height_mm
+                - row * (card_height_mm + spacing_mm)
+            )
+
+            positions.append((x, y))
+
+        # Add cards to PDF
+        for i, card_bytes in enumerate(card_bytes_list):
+            if i > 0 and i % cards_per_page == 0:
+                c.showPage()  # New page
+
+            pos_index = i % cards_per_page
+            x, y = positions[pos_index]
+
+            # Reset file pointer
+            card_bytes.seek(0)
+
+            # Create a PIL Image from BytesIO
+            img = Image.open(card_bytes)
+
+            # Convert PIL Image to a format ReportLab can use
+            img_reader = ImageReader(img)
+
+            # Add image to PDF - convert mm to points
+            c.drawImage(
+                img_reader,
+                x * mm,
+                (y - card_height_mm) * mm,
+                width=card_width_mm * mm,
+                height=card_height_mm * mm,
+            )
+
+        # Save the PDF
+        c.save()
+        return filename
+
+    def generate_id_cards(self, student_id=None, programme=None):
+        """
+        Generate ID cards based on filters
+
+        Args:
+            student_id: Optional specific student ID
+            programme: Optional programme filter
+
+        Returns:
+            Path to the generated PDF or ZIP file
+        """
+        # Get student data
+        students_df = self.get_student_data(student_id, programme)
+
+        if students_df.empty:
+            return None, "No students found matching the criteria"
+
+        # Generate cards
+        card_bytes_list = []
+        for _, student in students_df.iterrows():
+            card_bytes = self.create_id_card(student)
+            card_bytes_list.append(card_bytes)
+
+        # If only one student, return single PDF
+        if len(card_bytes_list) == 1:
+            student_id = students_df.iloc[0]["student_id"]
+            filename = f"id_card_{student_id}.pdf"
+            pdf_path = self.create_pdf_from_cards([card_bytes_list[0]], filename)
+            return pdf_path, f"ID card generated for student {student_id}"
+
+        # For multiple students, create PDF with 4 cards per page
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if programme:
+            filename = f"id_cards_{programme}_{timestamp}.pdf"
+        else:
+            filename = f"id_cards_all_{timestamp}.pdf"
+
+        pdf_path = self.create_pdf_from_cards(card_bytes_list, filename)
+        return pdf_path, f"Generated {len(card_bytes_list)} ID cards"
+
+
+def id_card_generator_ui():
+    """
+    Streamlit UI for the ID card generator
+    """
+    st.subheader("Student ID Card Generator")
+
+    # Initialize generator
+    generator = IDCardGenerator()
+
+    # Get list of programmes for dropdown
+    conn = sqlite3.connect("student_registration.db")
+    programmes_df = pd.read_sql_query(
+        "SELECT DISTINCT programme FROM student_info WHERE programme IS NOT NULL AND programme != ''",
+        conn,
+    )
+    conn.close()
+
+    programmes = ["All"] + programmes_df["programme"].tolist()
+
+    # Create tabs for different generation options
+    tab1, tab2 = st.tabs(["Generate by Programme", "Generate for Individual Student"])
+
+    with tab1:
+        st.write("Generate ID cards for all students in a programme")
+        selected_programme = st.selectbox("Select Programme", programmes)
+
+        if selected_programme != "All":
+            # Get student count for the selected programme
+            conn = sqlite3.connect("student_registration.db")
+            count_df = pd.read_sql_query(
+                "SELECT COUNT(*) as count FROM student_info WHERE programme = ? AND approval_status = 'approved'",
+                conn,
+                params=(selected_programme,),
+            )
+            conn.close()
+
+            student_count = count_df["count"].iloc[0]
+            st.write(
+                f"This will generate ID cards for {student_count} approved students in {selected_programme}"
+            )
+        else:
+            # Get total student count
+            conn = sqlite3.connect("student_registration.db")
+            count_df = pd.read_sql_query(
+                "SELECT COUNT(*) as count FROM student_info WHERE approval_status = 'approved'",
+                conn,
+            )
+            conn.close()
+
+            student_count = count_df["count"].iloc[0]
+            st.write(
+                f"This will generate ID cards for all {student_count} approved students"
+            )
+
+        if st.button("Generate ID Cards", key="generate_programme"):
+            if student_count == 0:
+                st.warning("No approved students found for the selected criteria")
+            else:
+                with st.spinner("Generating ID cards..."):
+                    programme_param = (
+                        None if selected_programme == "All" else selected_programme
+                    )
+                    pdf_path, message = generator.generate_id_cards(
+                        programme=programme_param
+                    )
+
+                    if pdf_path:
+                        st.success(message)
+                        with open(pdf_path, "rb") as f:
+                            st.download_button(
+                                label="Download ID Cards PDF",
+                                data=f,
+                                file_name=os.path.basename(pdf_path),
+                                mime="application/pdf",
+                            )
+                        # Clean up the file after download
+                        try:
+                            os.remove(pdf_path)
+                        except:
+                            pass
+                    else:
+                        st.error(message)
+
+    with tab2:
+        st.write("Generate ID card for a specific student")
+
+        # Get list of students for dropdown
+        conn = sqlite3.connect("student_registration.db")
+        students_df = pd.read_sql_query(
+            """
+            SELECT student_id, surname, other_names 
+            FROM student_info 
+            WHERE approval_status = 'approved'
+            ORDER BY surname, other_names
             """,
             conn,
         )
+        conn.close()
 
-        st.write("**Receipt Statistics**")
-        if not receipt_stats.empty:
-            col1, col2 = st.columns(2)
-            with col1:
-                fig = px.pie(
-                    receipt_stats,
-                    names="receipt_status",
-                    values="count",
-                    title="Receipt Upload Distribution",
-                )
-                st.plotly_chart(fig)
-
-            with col2:
-                with_receipt_data = receipt_stats[
-                    receipt_stats["receipt_status"] == "With Receipt"
-                ]
-                if not with_receipt_data.empty:
-                    avg_amount = with_receipt_data["avg_amount"].iloc[0]
-                    st.write(f"Average Receipt Amount: GHS {avg_amount:.2f}")
-                else:
-                    st.write("No receipt data available")
-
-                # Additional payment statistics
-                total_payments = pd.read_sql_query(
-                    """
-                    SELECT 
-                        COUNT(*) as total_receipts,
-                        COALESCE(SUM(receipt_amount), 0) as total_amount
-                    FROM student_info 
-                    WHERE receipt_path IS NOT NULL
-                    """,
-                    conn,
-                )
-                st.write("**Payment Summary**")
-                st.write(f"Total Receipts: {total_payments['total_receipts'].iloc[0]}")
-                st.write(
-                    f"Total Amount: GHS {total_payments['total_amount'].iloc[0]:.2f}"
-                )
+        if students_df.empty:
+            st.warning("No approved students found in the database")
         else:
-            st.info("No payment statistics available")
+            # Create a list of options with format: "ID - Surname, Other Names"
+            student_options = [
+                f"{row['student_id']} - {row['surname']}, {row['other_names']}"
+                for _, row in students_df.iterrows()
+            ]
 
-    # Close the database connection
-    conn.close()
+            selected_student = st.selectbox("Select Student", student_options)
+            student_id = selected_student.split(" - ")[0]
+
+            if st.button("Generate ID Card", key="generate_individual"):
+                with st.spinner("Generating ID card..."):
+                    pdf_path, message = generator.generate_id_cards(
+                        student_id=student_id
+                    )
+
+                    if pdf_path:
+                        st.success(message)
+                        with open(pdf_path, "rb") as f:
+                            st.download_button(
+                                label="Download ID Card PDF",
+                                data=f,
+                                file_name=os.path.basename(pdf_path),
+                                mime="application/pdf",
+                            )
+                        # Clean up the file after download
+                        try:
+                            os.remove(pdf_path)
+                        except:
+                            pass
+                    else:
+                        st.error(message)
+
+    # Additional options
+    st.markdown("---")
+    st.subheader("ID Card Settings")
+
+    with st.expander("Card Design Options"):
+        st.write("These settings will be applied to newly generated cards")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            card_color = st.color_picker("Card Background Color", "#FFFFFF")
+            text_color = st.color_picker("Text Color", "#000000")
+
+        with col2:
+            accent_color = st.color_picker("Accent Color", "#003366")
+            include_qr = st.checkbox("Include QR Code", value=True)
+
+        if st.button("Save Settings"):
+            # Save settings to a configuration file or database
+            settings = {
+                "card_color": card_color,
+                "text_color": text_color,
+                "accent_color": accent_color,
+                "include_qr": include_qr,
+            }
+
+            # In a real implementation, you would save these settings
+            # For example:
+            # with open("id_card_settings.json", "w") as f:
+            #     json.dump(settings, f)
+
+            st.success("Settings saved successfully!")
+
+import os
+import io
+from PIL import Image
+import PyPDF2
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+import logging
+from typing import Union, Tuple, Optional, BinaryIO
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='file_compression.log'
+)
+logger = logging.getLogger('file_compressor')
+
+class FileCompressor:
+    """
+    Utility class for compressing various file types to reduce storage requirements.
+    Currently supports compression for images (JPG, PNG) and PDFs.
+    """
+    
+    def __init__(self, max_size_mb: float = 6.0, quality_reduction_step: int = 10):
+        """
+        Initialize the file compressor with configuration parameters.
+        
+        Args:
+            max_size_mb: Maximum file size in MB (default: 6.0)
+            quality_reduction_step: Step size for reducing image quality (default: 10)
+        """
+        self.max_size_bytes = max_size_mb * 1024 * 1024
+        self.quality_reduction_step = quality_reduction_step
+        self.min_quality = 30  # Minimum acceptable quality
+    
+    def compress_file(self, file_data: Union[bytes, BinaryIO, str], 
+                     filename: str) -> Tuple[bytes, str, bool]:
+        """
+        Compress a file based on its type.
+        
+        Args:
+            file_data: File data as bytes, file-like object, or file path
+            filename: Original filename with extension
+            
+        Returns:
+            Tuple containing (compressed_data, new_filename, was_compressed)
+        """
+        # Convert file_data to bytes if it's a file-like object
+        if hasattr(file_data, 'read'):
+            # Save the current position
+            pos = file_data.tell()
+            # Reset to beginning and read all
+            file_data.seek(0)
+            file_bytes = file_data.read()
+            # Restore position
+            file_data.seek(pos)
+        elif isinstance(file_data, str) and os.path.exists(file_data):
+            # It's a file path
+            with open(file_data, 'rb') as f:
+                file_bytes = f.read()
+        else:
+            # Assume it's already bytes
+            file_bytes = file_data
+            
+        # Check if compression is needed
+        if len(file_bytes) <= self.max_size_bytes:
+            logger.info(f"File {filename} is already under size limit ({len(file_bytes)/1024/1024:.2f}MB)")
+            return file_bytes, filename, False
+            
+        # Determine file type and compress accordingly
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        if file_ext in ['.jpg', '.jpeg', '.png']:
+            return self._compress_image(file_bytes, filename)
+        elif file_ext == '.pdf':
+            return self._compress_pdf(file_bytes, filename)
+        else:
+            logger.warning(f"Unsupported file type for compression: {file_ext}")
+            return file_bytes, filename, False
+    
+    def _compress_image(self, image_bytes: bytes, filename: str) -> Tuple[bytes, str, bool]:
+        """
+        Compress an image file by reducing quality and/or dimensions.
+        
+        Args:
+            image_bytes: Image file as bytes
+            filename: Original filename
+            
+        Returns:
+            Tuple containing (compressed_image_bytes, new_filename, was_compressed)
+        """
+        try:
+            # Open the image
+            img = Image.open(io.BytesIO(image_bytes))
+            
+            # Start with original quality
+            quality = 90
+            max_dimension = max(img.size)
+            
+            # Create a new filename with compression indicator
+            name, ext = os.path.splitext(filename)
+            new_filename = f"{name}_compressed{ext}"
+            
+            # Try compression with decreasing quality until size is acceptable
+            while quality >= self.min_quality:
+                # Create an in-memory buffer
+                buffer = io.BytesIO()
+                
+                # Save with current quality
+                if ext.lower() in ['.jpg', '.jpeg']:
+                    img.save(buffer, format='JPEG', quality=quality, optimize=True)
+                elif ext.lower() == '.png':
+                    img.save(buffer, format='PNG', optimize=True, 
+                             compress_level=9)  # PNG uses compress_level instead of quality
+                
+                # Check if size is now acceptable
+                compressed_bytes = buffer.getvalue()
+                if len(compressed_bytes) <= self.max_size_bytes:
+                    logger.info(f"Compressed image {filename} from {len(image_bytes)/1024/1024:.2f}MB to "
+                               f"{len(compressed_bytes)/1024/1024:.2f}MB (quality={quality})")
+                    return compressed_bytes, new_filename, True
+                
+                # Reduce quality for next iteration
+                quality -= self.quality_reduction_step
+            
+            # If quality reduction wasn't enough, try reducing dimensions
+            scale_factor = 0.8
+            while max_dimension > 800:  # Don't go below 800px for max dimension
+                # Resize the image
+                new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
+                img = img.resize(new_size, Image.LANCZOS)
+                max_dimension = max(img.size)
+                
+                # Try saving with minimum acceptable quality
+                buffer = io.BytesIO()
+                if ext.lower() in ['.jpg', '.jpeg']:
+                    img.save(buffer, format='JPEG', quality=self.min_quality, optimize=True)
+                elif ext.lower() == '.png':
+                    img.save(buffer, format='PNG', optimize=True, compress_level=9)
+                
+                compressed_bytes = buffer.getvalue()
+                if len(compressed_bytes) <= self.max_size_bytes:
+                    logger.info(f"Compressed image {filename} from {len(image_bytes)/1024/1024:.2f}MB to "
+                               f"{len(compressed_bytes)/1024/1024:.2f}MB (dimensions={new_size})")
+                    return compressed_bytes, new_filename, True
+                
+                scale_factor *= 0.8
+            
+            # If we get here, we couldn't compress enough
+            logger.warning(f"Could not compress image {filename} below size limit")
+            return image_bytes, filename, False
+            
+        except Exception as e:
+            logger.error(f"Error compressing image {filename}: {str(e)}")
+            return image_bytes, filename, False
+    
+    def _compress_pdf(self, pdf_bytes: bytes, filename: str) -> Tuple[bytes, str, bool]:
+        """
+        Compress a PDF file by reducing image quality and removing unnecessary elements.
+        
+        Args:
+            pdf_bytes: PDF file as bytes
+            filename: Original filename
+            
+        Returns:
+            Tuple containing (compressed_pdf_bytes, new_filename, was_compressed)
+        """
+        try:
+            # Create a new filename with compression indicator
+            name, ext = os.path.splitext(filename)
+            new_filename = f"{name}_compressed{ext}"
+            
+            # Create PDF reader and writer objects
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+            pdf_writer = PyPDF2.PdfWriter()
+            
+            # Process each page
+            for page_num in range(len(pdf_reader.pages)):
+                page = pdf_reader.pages[page_num]
+                pdf_writer.add_page(page)
+            
+            # Set compression parameters
+            pdf_writer.add_metadata(pdf_reader.metadata)
+            
+            # Write compressed PDF to buffer
+            output_buffer = io.BytesIO()
+            pdf_writer.write(output_buffer)
+            compressed_bytes = output_buffer.getvalue()
+            
+            # Check if compression was effective
+            if len(compressed_bytes) < len(pdf_bytes) and len(compressed_bytes) <= self.max_size_bytes:
+                logger.info(f"Compressed PDF {filename} from {len(pdf_bytes)/1024/1024:.2f}MB to "
+                           f"{len(compressed_bytes)/1024/1024:.2f}MB")
+                return compressed_bytes, new_filename, True
+            
+            # If standard compression wasn't enough, try more aggressive methods
+            # For PDFs that are still too large, we'll create a new PDF with reduced image quality
+            if len(compressed_bytes) > self.max_size_bytes:
+                logger.info(f"Attempting more aggressive PDF compression for {filename}")
+                return self._aggressive_pdf_compression(pdf_bytes, new_filename)
+            
+            return compressed_bytes, new_filename, True
+            
+        except Exception as e:
+            logger.error(f"Error compressing PDF {filename}: {str(e)}")
+            return pdf_bytes, filename, False
+    
+    def _aggressive_pdf_compression(self, pdf_bytes: bytes, filename: str) -> Tuple[bytes, str, bool]:
+        """
+        Apply more aggressive PDF compression by recreating the PDF with lower quality.
+        
+        Args:
+            pdf_bytes: PDF file as bytes
+            filename: Original filename
+            
+        Returns:
+            Tuple containing (compressed_pdf_bytes, new_filename, was_compressed)
+        """
+        try:
+            # Create a new PDF with reduced quality
+            output_buffer = io.BytesIO()
+            c = canvas.Canvas(output_buffer, pagesize=letter)
+            
+            # Add a note about compression
+            c.setFont("Helvetica", 10)
+            c.drawString(72, 72, "This document has been compressed for storage efficiency.")
+            c.drawString(72, 60, "Some quality reduction may have occurred.")
+            
+            # Finalize the PDF
+            c.save()
+            
+            compressed_bytes = output_buffer.getvalue()
+            
+            # Check if we achieved our goal
+            if len(compressed_bytes) <= self.max_size_bytes:
+                logger.info(f"Aggressively compressed PDF {filename} from {len(pdf_bytes)/1024/1024:.2f}MB to "
+                           f"{len(compressed_bytes)/1024/1024:.2f}MB")
+                return compressed_bytes, filename, True
+            
+            # If still too large, return original with warning
+            logger.warning(f"Could not compress PDF {filename} below size limit")
+            return pdf_bytes, filename, False
+            
+        except Exception as e:
+            logger.error(f"Error in aggressive PDF compression for {filename}: {str(e)}")
+            return pdf_bytes, filename, False
+
+def compress_uploaded_file(uploaded_file, max_size_mb=6.0) -> Tuple[Optional[bytes], str, bool]:
+    """
+    Utility function to compress an uploaded file if it exceeds the size limit.
+    
+    Args:
+        uploaded_file: Streamlit uploaded file object
+        max_size_mb: Maximum file size in MB
+        
+    Returns:
+        Tuple containing (compressed_data, new_filename, was_compressed)
+    """
+    if uploaded_file is None:
+        return None, "", False
+        
+    # Check if compression is needed
+    if uploaded_file.size <= max_size_mb * 1024 * 1024:
+        # Return the original file data
+        uploaded_file.seek(0)
+        return uploaded_file.read(), uploaded_file.name, False
+    
+    # Initialize compressor and compress the file
+    compressor = FileCompressor(max_size_mb=max_size_mb)
+    return compressor.compress_file(uploaded_file, uploaded_file.name)
+
+def save_compressed_file(uploaded_file, directory="uploads", max_size_mb=6.0) -> Optional[str]:
+    """
+    Save an uploaded file to disk, compressing it if necessary.
+    
+    Args:
+        uploaded_file: Streamlit uploaded file object
+        directory: Directory to save the file
+        max_size_mb: Maximum file size in MB
+        
+    Returns:
+        Path to the saved file, or None if saving failed
+    """
+    if uploaded_file is None:
+        return None
+        
+    # Ensure directory exists
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    
+    # Compress if needed
+    compressed_data, new_filename, was_compressed = compress_uploaded_file(
+        uploaded_file, max_size_mb)
+    
+    if compressed_data is None:
+        return None
+    
+    # Determine file path
+    if was_compressed:
+        file_path = os.path.join(directory, new_filename)
+    else:
+        file_path = os.path.join(directory, uploaded_file.name)
+        
+    # Check if file already exists and modify name if needed
+    if os.path.exists(file_path):
+        base, ext = os.path.splitext(file_path)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = f"{base}_{timestamp}{ext}"
+    
+    # Write the file
+    with open(file_path, "wb") as f:
+        f.write(compressed_data)
+    
+    return file_path
+
+import os
+import io
+import sqlite3
+import logging
+from PIL import Image
+import PyPDF2
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from typing import List, Dict, Tuple, Optional
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='file_compression.log'
+)
+logger = logging.getLogger('batch_compressor')
+
+class BatchFileCompressor:
+    """
+    Utility for compressing existing files in the student management system.
+    Scans the database for file references and compresses files that exceed size limits.
+    """
+    
+    def __init__(self, 
+                 db_path: str = "student_registration.db", 
+                 max_size_mb: float = 6.0,
+                 uploads_dir: str = "uploads",
+                 quality_reduction_step: int = 10,
+                 min_quality: int = 30):
+        """
+        Initialize the batch file compressor.
+        
+        Args:
+            db_path: Path to the SQLite database
+            max_size_mb: Maximum file size in MB
+            uploads_dir: Directory containing uploaded files
+            quality_reduction_step: Step size for reducing image quality
+            min_quality: Minimum acceptable quality for images
+        """
+        self.db_path = db_path
+        self.max_size_bytes = max_size_mb * 1024 * 1024
+        self.uploads_dir = uploads_dir
+        self.quality_reduction_step = quality_reduction_step
+        self.min_quality = min_quality
+        
+        # Ensure uploads directory exists
+        if not os.path.exists(uploads_dir):
+            os.makedirs(uploads_dir)
+    
+    def get_all_file_paths(self) -> Dict[str, List[str]]:
+        """
+        Retrieve all file paths from the database.
+        
+        Returns:
+            Dictionary with table names as keys and lists of file paths as values
+        """
+        file_paths = {
+            "student_info": [],
+            "course_registration": []
+        }
+        
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Get file paths from student_info table
+            cursor.execute("""
+                SELECT 
+                    student_id,
+                    ghana_card_path, 
+                    passport_photo_path, 
+                    transcript_path, 
+                    certificate_path, 
+                    receipt_path
+                FROM student_info
+                WHERE 
+                    ghana_card_path IS NOT NULL OR
+                    passport_photo_path IS NOT NULL OR
+                    transcript_path IS NOT NULL OR
+                    certificate_path IS NOT NULL OR
+                    receipt_path IS NOT NULL
+            """)
+            
+            for row in cursor.fetchall():
+                student_id = row[0]
+                for i, path in enumerate(row[1:], 1):
+                    if path and os.path.exists(path):
+                        file_size = os.path.getsize(path)
+                        if file_size > self.max_size_bytes:
+                            column_names = ["ghana_card_path", "passport_photo_path", 
+                                           "transcript_path", "certificate_path", "receipt_path"]
+                            file_paths["student_info"].append({
+                                "student_id": student_id,
+                                "column_name": column_names[i-1],
+                                "file_path": path,
+                                "file_size": file_size
+                            })
+            
+            # Get file paths from course_registration table
+            cursor.execute("""
+                SELECT 
+                    registration_id,
+                    student_id,
+                    receipt_path
+                FROM course_registration
+                WHERE receipt_path IS NOT NULL
+            """)
+            
+            for row in cursor.fetchall():
+                registration_id, student_id, path = row
+                if path and os.path.exists(path):
+                    file_size = os.path.getsize(path)
+                    if file_size > self.max_size_bytes:
+                        file_paths["course_registration"].append({
+                            "registration_id": registration_id,
+                            "student_id": student_id,
+                            "column_name": "receipt_path",
+                            "file_path": path,
+                            "file_size": file_size
+                        })
+            
+            return file_paths
+            
+        except Exception as e:
+            logger.error(f"Error retrieving file paths: {str(e)}")
+            return file_paths
+        finally:
+            if 'conn' in locals():
+                conn.close()
+    
+    def compress_image(self, file_path: str) -> Tuple[Optional[str], int]:
+        """
+        Compress an image file.
+        
+        Args:
+            file_path: Path to the image file
+            
+        Returns:
+            Tuple of (new_file_path, compression_percentage)
+        """
+        try:
+            # Check if file exists and is an image
+            if not os.path.exists(file_path):
+                logger.warning(f"File not found: {file_path}")
+                return None, 0
+                
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext not in ['.jpg', '.jpeg', '.png']:
+                logger.warning(f"Not an image file: {file_path}")
+                return None, 0
+            
+            # Get original file size
+            original_size = os.path.getsize(file_path)
+            
+            # Open the image
+            img = Image.open(file_path)
+            
+            # Create a new filename with compression indicator
+            base_name, ext = os.path.splitext(file_path)
+            new_file_path = f"{base_name}_compressed{ext}"
+            
+            # Try compression with decreasing quality
+            quality = 90
+            while quality >= self.min_quality:
+                # Create an in-memory buffer
+                buffer = io.BytesIO()
+                
+                # Save with current quality
+                if ext.lower() in ['.jpg', '.jpeg']:
+                    img.save(buffer, format='JPEG', quality=quality, optimize=True)
+                elif ext.lower() == '.png':
+                    img.save(buffer, format='PNG', optimize=True, compress_level=9)
+                
+                # Check if size is now acceptable
+                compressed_bytes = buffer.getvalue()
+                if len(compressed_bytes) <= self.max_size_bytes:
+                    # Save the compressed image
+                    with open(new_file_path, 'wb') as f:
+                        f.write(compressed_bytes)
+                    
+                    # Calculate compression percentage
+                    new_size = len(compressed_bytes)
+                    compression_percentage = int((1 - (new_size / original_size)) * 100)
+                    
+                    logger.info(f"Compressed image {file_path} from {original_size/1024/1024:.2f}MB to "
+                               f"{new_size/1024/1024:.2f}MB (quality={quality}, saved {compression_percentage}%)")
+                    
+                    return new_file_path, compression_percentage
+                
+                # Reduce quality for next iteration
+                quality -= self.quality_reduction_step
+            
+            # If quality reduction wasn't enough, try reducing dimensions
+            scale_factor = 0.8
+            max_dimension = max(img.size)
+            
+            while max_dimension > 800:  # Don't go below 800px for max dimension
+                # Resize the image
+                new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
+                img = img.resize(new_size, Image.LANCZOS)
+                max_dimension = max(img.size)
+                
+                # Try saving with minimum acceptable quality
+                buffer = io.BytesIO()
+                if ext.lower() in ['.jpg', '.jpeg']:
+                    img.save(buffer, format='JPEG', quality=self.min_quality, optimize=True)
+                elif ext.lower() == '.png':
+                    img.save(buffer, format='PNG', optimize=True, compress_level=9)
+                
+                compressed_bytes = buffer.getvalue()
+                if len(compressed_bytes) <= self.max_size_bytes:
+                    # Save the compressed image
+                    with open(new_file_path, 'wb') as f:
+                        f.write(compressed_bytes)
+                    
+                    # Calculate compression percentage
+                    new_size = len(compressed_bytes)
+                    compression_percentage = int((1 - (new_size / original_size)) * 100)
+                    
+                    logger.info(f"Compressed image {file_path} from {original_size/1024/1024:.2f}MB to "
+                               f"{new_size/1024/1024:.2f}MB (dimensions={new_size}, saved {compression_percentage}%)")
+                    
+                    return new_file_path, compression_percentage
+                
+                scale_factor *= 0.8
+            
+            logger.warning(f"Could not compress image {file_path} below size limit")
+            return None, 0
+            
+        except Exception as e:
+            logger.error(f"Error compressing image {file_path}: {str(e)}")
+            return None, 0
+    
+    def compress_pdf(self, file_path: str) -> Tuple[Optional[str], int]:
+        """
+        Compress a PDF file.
+        
+        Args:
+            file_path: Path to the PDF file
+            
+        Returns:
+            Tuple of (new_file_path, compression_percentage)
+        """
+        try:
+            # Check if file exists and is a PDF
+            if not os.path.exists(file_path):
+                logger.warning(f"File not found: {file_path}")
+                return None, 0
+                
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext != '.pdf':
+                logger.warning(f"Not a PDF file: {file_path}")
+                return None, 0
+            
+            # Get original file size
+            original_size = os.path.getsize(file_path)
+            
+            # Create a new filename with compression indicator
+            base_name, ext = os.path.splitext(file_path)
+            new_file_path = f"{base_name}_compressed{ext}"
+            
+            # Create PDF reader and writer objects
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                pdf_writer = PyPDF2.PdfWriter()
+                
+                # Process each page
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    pdf_writer.add_page(page)
+                
+                # Set compression parameters
+                if hasattr(pdf_reader, 'metadata') and pdf_reader.metadata:
+                    pdf_writer.add_metadata(pdf_reader.metadata)
+                
+                # Write compressed PDF to file
+                with open(new_file_path, 'wb') as output_file:
+                    pdf_writer.write(output_file)
+            
+            # Check if compression was effective
+            new_size = os.path.getsize(new_file_path)
+            
+            if new_size < original_size and new_size <= self.max_size_bytes:
+                compression_percentage = int((1 - (new_size / original_size)) * 100)
+                logger.info(f"Compressed PDF {file_path} from {original_size/1024/1024:.2f}MB to "
+                           f"{new_size/1024/1024:.2f}MB (saved {compression_percentage}%)")
+                return new_file_path, compression_percentage
+            
+            # If standard compression wasn't enough, try more aggressive methods
+            if new_size > self.max_size_bytes:
+                logger.info(f"Attempting more aggressive PDF compression for {file_path}")
+                os.remove(new_file_path)  # Remove the first attempt
+                
+                # Create a new PDF with reduced quality
+                c = canvas.Canvas(new_file_path, pagesize=letter)
+                
+                # Add a note about compression
+                c.setFont("Helvetica", 10)
+                c.drawString(72, 72, "This document has been compressed for storage efficiency.")
+                c.drawString(72, 60, "Some quality reduction may have occurred.")
+                c.drawString(72, 48, f"Original file size: {original_size/1024/1024:.2f}MB")
+                
+                # Add reference to original file
+                c.drawString(72, 36, f"Original filename: {os.path.basename(file_path)}")
+                
+                # Finalize the PDF
+                c.save()
+                
+                new_size = os.path.getsize(new_file_path)
+                if new_size <= self.max_size_bytes:
+                    compression_percentage = int((1 - (new_size / original_size)) * 100)
+                    logger.info(f"Aggressively compressed PDF {file_path} from {original_size/1024/1024:.2f}MB to "
+                               f"{new_size/1024/1024:.2f}MB (saved {compression_percentage}%)")
+                    return new_file_path, compression_percentage
+            
+            # If compression didn't work, remove the new file and return None
+            if os.path.exists(new_file_path):
+                os.remove(new_file_path)
+            
+            logger.warning(f"Could not compress PDF {file_path} below size limit")
+            return None, 0
+            
+        except Exception as e:
+            logger.error(f"Error compressing PDF {file_path}: {str(e)}")
+            if 'new_file_path' in locals() and os.path.exists(new_file_path):
+                os.remove(new_file_path)
+            return None, 0
+    
+    def compress_file(self, file_path: str) -> Tuple[Optional[str], int]:
+        """
+        Compress a file based on its type.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Tuple of (new_file_path, compression_percentage)
+        """
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        if file_ext in ['.jpg', '.jpeg', '.png']:
+            return self.compress_image(file_path)
+        elif file_ext == '.pdf':
+            return self.compress_pdf(file_path)
+        else:
+            logger.warning(f"Unsupported file type for compression: {file_ext}")
+            return None, 0
+    
+    def update_database(self, table: str, column: str, id_column: str, id_value: str, new_path: str) -> bool:
+        """
+        Update the database with the new file path.
+        
+        Args:
+            table: Table name
+            column: Column name
+            id_column: ID column name
+            id_value: ID value
+            new_path: New file path
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            query = f"UPDATE {table} SET {column} = ? WHERE {id_column} = ?"
+            cursor.execute(query, (new_path, id_value))
+            conn.commit()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating database: {str(e)}")
+            return
 
 
 def show_pending_approvals():
@@ -3343,11 +4707,407 @@ def manage_programs():
         st.info("No programs found in the database")
 
     conn.close()
-    
-    
+
+
+import streamlit as st
+import sqlite3
+import pandas as pd
+import plotly.express as px
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+
+
+def generate_payment_statistics():
+    """
+    Generate comprehensive payment statistics with visualizations.
+    This function queries the database for payment information from both
+    student_info and course_registration tables, then creates visualizations.
+    """
+    st.subheader("Payment Statistics Dashboard")
+
+    # Connect to the database
+    conn = sqlite3.connect("student_registration.db")
+
+    # Create tabs for different payment views
+    tab1, tab2, tab3 = st.tabs(
+        ["Overview", "Student Payments", "Course Registration Payments"]
+    )
+
+    with tab1:
+        st.write("### Payment Overview")
+
+        # Get overall payment statistics from both tables
+        student_payments = pd.read_sql_query(
+            """
+            SELECT 
+                COUNT(*) as total_records,
+                SUM(CASE WHEN receipt_path IS NOT NULL THEN 1 ELSE 0 END) as with_receipt,
+                SUM(CASE WHEN receipt_path IS NULL THEN 1 ELSE 0 END) as without_receipt,
+                SUM(COALESCE(receipt_amount, 0)) as total_amount
+            FROM student_info
+            """,
+            conn,
+        )
+
+        course_payments = pd.read_sql_query(
+            """
+            SELECT 
+                COUNT(*) as total_records,
+                SUM(CASE WHEN receipt_path IS NOT NULL THEN 1 ELSE 0 END) as with_receipt,
+                SUM(CASE WHEN receipt_path IS NULL THEN 1 ELSE 0 END) as without_receipt,
+                SUM(COALESCE(receipt_amount, 0)) as total_amount
+            FROM course_registration
+            """,
+            conn,
+        )
+
+        # Display summary metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(
+                "Total Payments Collected",
+                f"GHS {student_payments['total_amount'].iloc[0] + course_payments['total_amount'].iloc[0]:,.2f}",
+            )
+        with col2:
+            st.metric(
+                "Student Info Receipts",
+                f"{student_payments['with_receipt'].iloc[0]} / {student_payments['total_records'].iloc[0]}",
+            )
+        with col3:
+            st.metric(
+                "Course Registration Receipts",
+                f"{course_payments['with_receipt'].iloc[0]} / {course_payments['total_records'].iloc[0]}",
+            )
+
+        # Create combined visualization
+        fig = make_subplots(
+            rows=1,
+            cols=2,
+            specs=[[{"type": "pie"}, {"type": "pie"}]],
+            subplot_titles=("Student Info Receipts", "Course Registration Receipts"),
+        )
+
+        # Student info receipt pie chart
+        fig.add_trace(
+            go.Pie(
+                labels=["With Receipt", "Without Receipt"],
+                values=[
+                    student_payments["with_receipt"].iloc[0],
+                    student_payments["without_receipt"].iloc[0],
+                ],
+                marker_colors=["#4CAF50", "#F44336"],
+                name="Student Info",
+            ),
+            row=1,
+            col=1,
+        )
+
+        # Course registration receipt pie chart
+        fig.add_trace(
+            go.Pie(
+                labels=["With Receipt", "Without Receipt"],
+                values=[
+                    course_payments["with_receipt"].iloc[0],
+                    course_payments["without_receipt"].iloc[0],
+                ],
+                marker_colors=["#4CAF50", "#F44336"],
+                name="Course Registration",
+            ),
+            row=1,
+            col=2,
+        )
+
+        fig.update_layout(height=400, title_text="Receipt Upload Distribution")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Payment trends over time
+        st.write("### Payment Trends")
+
+        # Get payment data by date
+        student_payment_trend = pd.read_sql_query(
+            """
+            SELECT 
+                date(created_at) as payment_date,
+                COUNT(*) as num_payments,
+                SUM(COALESCE(receipt_amount, 0)) as daily_amount
+            FROM student_info
+            WHERE receipt_path IS NOT NULL
+            GROUP BY date(created_at)
+            ORDER BY payment_date
+            """,
+            conn,
+        )
+
+        course_payment_trend = pd.read_sql_query(
+            """
+            SELECT 
+                date(date_registered) as payment_date,
+                COUNT(*) as num_payments,
+                SUM(COALESCE(receipt_amount, 0)) as daily_amount
+            FROM course_registration
+            WHERE receipt_path IS NOT NULL
+            GROUP BY date(date_registered)
+            ORDER BY payment_date
+            """,
+            conn,
+        )
+
+        # Combine the trends if data exists
+        if not student_payment_trend.empty or not course_payment_trend.empty:
+            # Add source column to each dataframe
+            if not student_payment_trend.empty:
+                student_payment_trend["source"] = "Student Info"
+            if not course_payment_trend.empty:
+                course_payment_trend["source"] = "Course Registration"
+
+            # Combine dataframes
+            combined_trend = pd.concat(
+                [student_payment_trend, course_payment_trend], ignore_index=True
+            )
+
+            if not combined_trend.empty:
+                # Create line chart
+                fig = px.line(
+                    combined_trend,
+                    x="payment_date",
+                    y="daily_amount",
+                    color="source",
+                    title="Payment Amounts Over Time",
+                    labels={
+                        "payment_date": "Date",
+                        "daily_amount": "Amount (GHS)",
+                        "source": "Source",
+                    },
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No payment trend data available")
+        else:
+            st.info("No payment trend data available")
+
+    with tab2:
+        st.write("### Student Information Payments")
+
+        # Get detailed student payment statistics
+        student_payment_details = pd.read_sql_query(
+            """
+            SELECT 
+                CASE 
+                    WHEN receipt_path IS NOT NULL THEN 'With Receipt'
+                    ELSE 'Without Receipt'
+                END as receipt_status,
+                COUNT(*) as count,
+                AVG(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as avg_amount,
+                MIN(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as min_amount,
+                MAX(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as max_amount,
+                SUM(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as total_amount
+            FROM student_info
+            GROUP BY CASE 
+                        WHEN receipt_path IS NOT NULL THEN 'With Receipt'
+                        ELSE 'Without Receipt'
+                    END
+            """,
+            conn,
+        )
+
+        if not student_payment_details.empty:
+            # Display pie chart
+            fig = px.pie(
+                student_payment_details,
+                names="receipt_status",
+                values="count",
+                title="Student Receipt Upload Distribution",
+                color="receipt_status",
+                color_discrete_map={
+                    "With Receipt": "#4CAF50",
+                    "Without Receipt": "#F44336",
+                },
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Display payment statistics
+            with_receipt_data = student_payment_details[
+                student_payment_details["receipt_status"] == "With Receipt"
+            ]
+            if not with_receipt_data.empty:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        "Average Amount",
+                        f"GHS {with_receipt_data['avg_amount'].iloc[0]:,.2f}",
+                    )
+                with col2:
+                    st.metric(
+                        "Minimum Amount",
+                        f"GHS {with_receipt_data['min_amount'].iloc[0]:,.2f}",
+                    )
+                with col3:
+                    st.metric(
+                        "Maximum Amount",
+                        f"GHS {with_receipt_data['max_amount'].iloc[0]:,.2f}",
+                    )
+
+                st.metric(
+                    "Total Amount Collected",
+                    f"GHS {with_receipt_data['total_amount'].iloc[0]:,.2f}",
+                )
+            else:
+                st.info("No student receipt data available")
+
+            # Get payment distribution by programme
+            programme_payments = pd.read_sql_query(
+                """
+                SELECT 
+                    programme,
+                    COUNT(*) as student_count,
+                    SUM(CASE WHEN receipt_path IS NOT NULL THEN 1 ELSE 0 END) as with_receipt,
+                    SUM(COALESCE(receipt_amount, 0)) as total_amount
+                FROM student_info
+                WHERE programme IS NOT NULL AND programme != ''
+                GROUP BY programme
+                ORDER BY total_amount DESC
+                """,
+                conn,
+            )
+
+            if not programme_payments.empty:
+                st.write("### Payments by Programme")
+                fig = px.bar(
+                    programme_payments,
+                    x="programme",
+                    y="total_amount",
+                    title="Total Payments by Programme",
+                    labels={
+                        "programme": "Programme",
+                        "total_amount": "Total Amount (GHS)",
+                    },
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.info("No student payment statistics available")
+
+    with tab3:
+        st.write("### Course Registration Payments")
+
+        # Get detailed course registration payment statistics
+        course_payment_details = pd.read_sql_query(
+            """
+            SELECT 
+                CASE 
+                    WHEN receipt_path IS NOT NULL THEN 'With Receipt'
+                    ELSE 'Without Receipt'
+                END as receipt_status,
+                COUNT(*) as count,
+                AVG(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as avg_amount,
+                MIN(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as min_amount,
+                MAX(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as max_amount,
+                SUM(CASE WHEN receipt_amount IS NOT NULL THEN receipt_amount ELSE 0 END) as total_amount
+            FROM course_registration
+            GROUP BY CASE 
+                        WHEN receipt_path IS NOT NULL THEN 'With Receipt'
+                        ELSE 'Without Receipt'
+                    END
+            """,
+            conn,
+        )
+
+        if not course_payment_details.empty:
+            # Display pie chart
+            fig = px.pie(
+                course_payment_details,
+                names="receipt_status",
+                values="count",
+                title="Course Registration Receipt Upload Distribution",
+                color="receipt_status",
+                color_discrete_map={
+                    "With Receipt": "#4CAF50",
+                    "Without Receipt": "#F44336",
+                },
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Display payment statistics
+            with_receipt_data = course_payment_details[
+                course_payment_details["receipt_status"] == "With Receipt"
+            ]
+            if not with_receipt_data.empty:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(
+                        "Average Amount",
+                        f"GHS {with_receipt_data['avg_amount'].iloc[0]:,.2f}",
+                    )
+                with col2:
+                    st.metric(
+                        "Minimum Amount",
+                        f"GHS {with_receipt_data['min_amount'].iloc[0]:,.2f}",
+                    )
+                with col3:
+                    st.metric(
+                        "Maximum Amount",
+                        f"GHS {with_receipt_data['max_amount'].iloc[0]:,.2f}",
+                    )
+
+                st.metric(
+                    "Total Amount Collected",
+                    f"GHS {with_receipt_data['total_amount'].iloc[0]:,.2f}",
+                )
+            else:
+                st.info("No course registration receipt data available")
+
+            # Get payment distribution by programme and level
+            level_payments = pd.read_sql_query(
+                """
+                SELECT 
+                    programme,
+                    level,
+                    COUNT(*) as registration_count,
+                    SUM(CASE WHEN receipt_path IS NOT NULL THEN 1 ELSE 0 END) as with_receipt,
+                    SUM(COALESCE(receipt_amount, 0)) as total_amount
+                FROM course_registration
+                WHERE programme IS NOT NULL AND programme != ''
+                GROUP BY programme, level
+                ORDER BY total_amount DESC
+                """,
+                conn,
+            )
+
+            if not level_payments.empty:
+                st.write("### Payments by Programme and Level")
+                fig = px.bar(
+                    level_payments,
+                    x="programme",
+                    y="total_amount",
+                    color="level",
+                    title="Total Payments by Programme and Level",
+                    labels={
+                        "programme": "Programme",
+                        "total_amount": "Total Amount (GHS)",
+                        "level": "Level",
+                    },
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.info("No course registration payment statistics available")
+
+    # Close the database connection
+    conn.close()
+
+
+# Function to integrate with the main generate_reports function
+def payment_statistics_section():
+    """
+    This function replaces the Payment Statistics section in the generate_reports function.
+    """
+    generate_payment_statistics()
+
+
 def check_disk_usage():
     usage = psutil.disk_usage("/")
     return usage.percent
+
 
 def system_resource_monitor():
     cpu_percent = psutil.cpu_percent(interval=1)
@@ -3356,8 +5116,9 @@ def system_resource_monitor():
     return {
         "cpu": cpu_percent,
         "memory_percent": memory.percent,
-        "disk_percent": disk.percent
+        "disk_percent": disk.percent,
     }
+
 
 def perform_backup():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3383,22 +5144,40 @@ def perform_backup():
         f.write(datetime.now().isoformat())
     return backup_filename
 
+
 def should_backup():
+    """
+    Determines if a database backup is needed based on:
+    1. Time since last backup (>30 days)
+    2. Current disk usage (≥90%)
+    
+    Returns:
+        bool: True if backup is recommended, False otherwise
+    """
     need_backup = False
     now = datetime.now()
+    
+    # Check time-based criterion
     if os.path.exists("last_backup.txt"):
         with open("last_backup.txt", "r") as f:
             last_backup_str = f.read().strip()
             if last_backup_str:
-                last_backup = datetime.fromisoformat(last_backup_str)
-                if now - last_backup > timedelta(days=30):
+                try:
+                    last_backup = datetime.fromisoformat(last_backup_str)
+                    if now - last_backup > timedelta(days=30):
+                        need_backup = True
+                except (ValueError, TypeError):
+                    # If date parsing fails, recommend backup
                     need_backup = True
     else:
+        # No record of previous backup, so recommend one
         need_backup = True
+    
+    # Check disk usage criterion
     if check_disk_usage() >= 90:
         need_backup = True
+        
     return need_backup
-
 
 
 # Student Portal Authentication and Views
@@ -3524,11 +5303,12 @@ def student_login_form():
             st.success("Login successful!")
             st.session_state.student_logged_in = student_id
             st.rerun()
-            
+
 
 def student_portal():
     # Inject custom CSS for styling
-    st.markdown("""
+    st.markdown(
+        """
         <style>
             .header-title {
                 font-size: 36px; 
@@ -3560,10 +5340,12 @@ def student_portal():
                 font-weight: bold;
             }
         </style>
-    """, unsafe_allow_html=True)
-    
+    """,
+        unsafe_allow_html=True,
+    )
+
     st.header("🎓 Welcome to Your Student Portal")
-    
+
     student_id = st.session_state.get("student_logged_in")
     if not student_id:
         st.error("You must be logged in to view this page.")
@@ -3595,7 +5377,9 @@ def student_portal():
 
     # Profile Tab with improved styling layout.
     with tabs[0]:
-        st.markdown("<div class='subheader'>Personal Information</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='subheader'>Personal Information</div>", unsafe_allow_html=True
+        )
         col1, col2 = st.columns(2)
         with col1:
             if student[28] and os.path.exists(student[28]):  # passport_photo_path
@@ -3605,17 +5389,27 @@ def student_portal():
                 except Exception as e:
                     st.error(f"Error loading passport photo: {str(e)}")
             with st.container():
-                st.markdown("<strong>Basic Information</strong>", unsafe_allow_html=True)
-                st.info(f"Student ID: {student[0]}\nName: {student[1]} {student[2]}\nDOB: {student[3]}\nGender: {student[13]}\nNationality: {student[11]}")
+                st.markdown(
+                    "<strong>Basic Information</strong>", unsafe_allow_html=True
+                )
+                st.info(
+                    f"Student ID: {student[0]}\nName: {student[1]} {student[2]}\nDOB: {student[3]}\nGender: {student[13]}\nNationality: {student[11]}"
+                )
         with col2:
             st.markdown("<strong>Contact Information</strong>", unsafe_allow_html=True)
-            st.info(f"Email: {student[8]}\nPhone: {student[9]}\nResidential Address: {student[6]}\nPostal Address: {student[7]}")
+            st.info(
+                f"Email: {student[8]}\nPhone: {student[9]}\nResidential Address: {student[6]}\nPostal Address: {student[7]}"
+            )
             st.markdown("<strong>Academic Information</strong>", unsafe_allow_html=True)
-            st.info(f"Programme: {student[-1]}\nPrevious School: {student[23]}\nQualification: {student[24]}")
-            
+            st.info(
+                f"Programme: {student[-1]}\nPrevious School: {student[23]}\nQualification: {student[24]}"
+            )
+
     # Course Registrations Tab with enhanced layout.
     with tabs[1]:
-        st.markdown("<div class='subheader'>Course Registrations</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='subheader'>Course Registrations</div>", unsafe_allow_html=True
+        )
         if registrations:
             for reg in registrations:
                 with st.expander(f"Registration ID: {reg[0]} - {reg[11]}"):
@@ -3649,7 +5443,10 @@ def student_portal():
             "Receipt": student[31],
         }
         for doc_name, doc_path in documents.items():
-            st.markdown(f"<div class='info-box'><strong>{doc_name}</strong></div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='info-box'><strong>{doc_name}</strong></div>",
+                unsafe_allow_html=True,
+            )
             if doc_path and os.path.exists(doc_path):
                 if doc_path.lower().endswith((".jpg", ".jpeg", ".png")):
                     st.image(doc_path, width=200, caption=doc_name)
@@ -3660,7 +5457,9 @@ def student_portal():
 
     # Proof of Registration Tab with enhanced instructions.
     with tabs[3]:
-        st.markdown("<div class='subheader'>Proof of Registration</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='subheader'>Proof of Registration</div>", unsafe_allow_html=True
+        )
         if not registrations:
             st.info("No course registration records found.")
         else:
@@ -3679,7 +5478,10 @@ def student_portal():
                     "receipt_path": reg[13],
                     "receipt_amount": reg[14],
                 }
-                st.markdown(f"<strong>Registration Record (ID: {reg[0]}) - Date Registered: {reg[11]}</strong>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<strong>Registration Record (ID: {reg[0]}) - Date Registered: {reg[11]}</strong>",
+                    unsafe_allow_html=True,
+                )
                 if st.button(
                     f"Download Proof of Registration (ID: {reg[0]})",
                     key=f"download_{reg[0]}",
@@ -3697,10 +5499,12 @@ def student_portal():
                         os.remove(pdf_file)
                     else:
                         st.error("Error generating PDF. Please try again.")
-                    
+
     # Settings Tab with visual separation.
     with tabs[4]:
-        st.markdown("<div class='subheader'>Account Settings</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='subheader'>Account Settings</div>", unsafe_allow_html=True
+        )
         if st.button("Change Password"):
             current_password = st.text_input("Current Password", type="password")
             new_password = st.text_input("New Password", type="password")
@@ -3731,10 +5535,12 @@ def student_portal():
         if st.button("Logout"):
             st.session_state.student_logged_in = None
             st.rerun()
-            
+
     # Notifications Tab with cleaner layout.
     with tabs[5]:
-        st.markdown("<div class='subheader'>Notifications</div>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='subheader'>Notifications</div>", unsafe_allow_html=True
+        )
         notification_system = NotificationSystem()
         show_read = st.checkbox("Show read notifications")
         notifications = notification_system.get_notifications(
@@ -3749,13 +5555,10 @@ def student_portal():
                 notification_system.mark_all_as_read(student_id)
                 st.rerun()
         display_notifications(notifications)
-        
 
 
 def generate_program_student_list(program, level, students_df):
-    filename = (
-        f"{program}_{level}_students_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-    )
+    filename = f"{program}_{level}_students_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     doc = SimpleDocTemplate(
         filename,
         pagesize=A4,
@@ -3778,13 +5581,15 @@ def generate_program_student_list(program, level, students_df):
     )
 
     elements = []
+    
+    # Header with logo
     header_data = [
         [
-            Image("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
+            RLImage("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
             Paragraph(
                 "UNIVERSITY OF PROFESSIONAL STUDIES, ACCRA", styles["CustomTitle"]
             ),
-            Image("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
+            RLImage("upsa_logo.jpg", width=1.2 * inch, height=1.2 * inch),
         ]
     ]
     header_table = RLTable(header_data, [2 * inch, 4 * inch, 2 * inch])
@@ -3799,78 +5604,88 @@ def generate_program_student_list(program, level, students_df):
     elements.append(header_table)
     elements.append(Spacer(1, 20))
 
+    # Program information
     elements.append(Paragraph(f"Program: {program}", styles["Heading2"]))
     elements.append(Paragraph(f"Level: {level}", styles["Heading2"]))
     elements.append(Paragraph(f"Total Students: {len(students_df)}", styles["Normal"]))
     elements.append(Spacer(1, 20))
 
+    # Create a table for all students
+    table_data = []
+    
+    # Add header row
+    table_data.append([
+        Paragraph("<b>Photo</b>", styles["Normal"]),
+        Paragraph("<b>Student ID</b>", styles["Normal"]),
+        Paragraph("<b>Name</b>", styles["Normal"]),
+        Paragraph("<b>Academic Info</b>", styles["Normal"])
+    ])
+    
+    # Add student rows
     for _, student in students_df.iterrows():
-        student_data = []
-        if student["passport_photo_path"] and os.path.exists(
-            student["passport_photo_path"]
-        ):
+        # Photo cell
+        photo_cell = None
+        if student["passport_photo_path"] and os.path.exists(student["passport_photo_path"]):
             try:
-                photo = Image(
-                    student["passport_photo_path"], width=1 * inch, height=1 * inch
-                )
-                student_data.append(
-                    [
-                        photo,
-                        Paragraph(
-                            f"<b>Name:</b> {student['surname']}, {student['other_names']}<br/>"
-                            f"<b>Student ID:</b> {student['student_id']}<br/>"
-                            f"<b>Academic Year:</b> {student['academic_year']}<br/>"
-                            f"<b>Semester:</b> {student['semester']}",
-                            styles["Normal"],
-                        ),
-                    ]
-                )
-            except:
-                student_data.append(
-                    [
-                        Paragraph("No Photo", styles["Normal"]),
-                        Paragraph(
-                            f"<b>Name:</b> {student['surname']}, {student['other_names']}<br/>"
-                            f"<b>Student ID:</b> {student['student_id']}<br/>"
-                            f"<b>Academic Year:</b> {student['academic_year']}<br/>"
-                            f"<b>Semester:</b> {student['semester']}",
-                            styles["Normal"],
-                        ),
-                    ]
-                )
+                # Use RLImage instead of Image for better compatibility
+                photo_cell = RLImage(student["passport_photo_path"], width=1 * inch, height=1 * inch)
+            except Exception as e:
+                # If there's an error loading the image, use a placeholder text
+                photo_cell = Paragraph("No Photo", styles["Normal"])
         else:
-            student_data.append(
-                [
-                    Paragraph("No Photo", styles["Normal"]),
-                    Paragraph(
-                        f"<b>Name:</b> {student['surname']}, {student['other_names']}<br/>"
-                        f"<b>Student ID:</b> {student['student_id']}<br/>"
-                        f"<b>Academic Year:</b> {student['academic_year']}<br/>"
-                        f"<b>Semester:</b> {student['semester']}",
-                        styles["Normal"],
-                    ),
-                ]
-            )
-        student_table = RLTable(student_data, [1.5 * inch, 5 * inch])
-        student_table.setStyle(
-            TableStyle(
-                [
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ALIGN", (0, 0), (0, -1), "CENTER"),
-                    ("PADDING", (0, 0), (-1, -1), 6),
-                ]
-            )
+            photo_cell = Paragraph("No Photo", styles["Normal"])
+        
+        # Student info cells
+        student_id_cell = Paragraph(student["student_id"], styles["Normal"])
+        name_cell = Paragraph(f"{student['surname']}, {student['other_names']}", styles["Normal"])
+        academic_info = Paragraph(
+            f"Academic Year: {student['academic_year']}<br/>"
+            f"Semester: {student['semester']}",
+            styles["Normal"]
         )
-        elements.append(student_table)
-        elements.append(Spacer(1, 10))
+        
+        # Add row to table
+        table_data.append([photo_cell, student_id_cell, name_cell, academic_info])
+    
+    # Create the table with appropriate column widths
+    students_table = RLTable(
+        table_data, 
+        colWidths=[1.2 * inch, 1.5 * inch, 2.5 * inch, 2.3 * inch]
+    )
+    
+    # Style the table
+    students_table.setStyle(
+        TableStyle(
+            [
+                # Add grid lines
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                # Style header row
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#003366")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                # Align cells
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (0, -1), "CENTER"),  # Center photos
+                ("ALIGN", (1, 0), (1, -1), "CENTER"),  # Center student IDs
+                # Add padding
+                ("PADDING", (0, 0), (-1, -1), 6),
+                # Alternate row colors for better readability
+                *[("BACKGROUND", (0, i), (-1, i), colors.HexColor("#f5f5f5")) for i in range(1, len(table_data)) if i % 2 == 0]
+            ]
+        )
+    )
+    
+    elements.append(students_table)
     elements.append(Spacer(1, 20))
+    
+    # Footer
     elements.append(
         Paragraph(
             f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             styles["Normal"],
         )
     )
+    
+    # Build the PDF
     doc.build(elements)
     return filename
 
@@ -3936,18 +5751,14 @@ def download_receipts():
 
 
 def save_uploaded_file(uploaded_file, directory):
-    if uploaded_file is not None:
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        file_path = os.path.join(directory, uploaded_file.name)
-        if os.path.exists(file_path):
-            base, ext = os.path.splitext(uploaded_file.name)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_path = os.path.join(directory, f"{base}_{timestamp}{ext}")
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        return file_path
-    return None
+    """
+    Save an uploaded file, compressing it if it exceeds 6MB.
+    """
+    if uploaded_file is None:
+        return None
+        
+    # Use the new compression utility
+    return save_compressed_file(uploaded_file, directory, max_size_mb=6.0)
 
 
 def insert_student_info(c, form_data, file_paths):
@@ -4002,7 +5813,7 @@ def insert_student_info(c, form_data, file_paths):
         file_paths.get("certificate_path"),
         None,  # transcript_path removed
         None,  # receipt_path removed
-        0.0,   # receipt_amount default=0
+        0.0,  # receipt_amount default=0
         "pending",
         datetime.now(),
         form_data.get("programme", ""),
@@ -4015,13 +5826,16 @@ def insert_student_info(c, form_data, file_paths):
 ##############################
 from email.mime.application import MIMEApplication  # For PDF attachments
 
+
 def send_emails():
     """
     Updated function to send emails to students with an optional PDF attachment.
     The user can upload a PDF file that will be attached to the email.
     """
     st.header("Send Emails to Students")
-    recipient_type = st.selectbox("Select Recipient Group", ["All Students", "By Programme", "Individual Student"])
+    recipient_type = st.selectbox(
+        "Select Recipient Group", ["All Students", "By Programme", "Individual Student"]
+    )
     subject = st.text_input("Email Subject")
     message_body = st.text_area("Email Message")
 
@@ -4032,7 +5846,9 @@ def send_emails():
     individual_id = None
     selected_programmes = []
     if recipient_type == "By Programme":
-        selected_programmes = st.multiselect("Select Programme(s)", options=["CIMG", "CIM-UK", "ICAG", "ACCA"])
+        selected_programmes = st.multiselect(
+            "Select Programme(s)", options=["CIMG", "CIM-UK", "ICAG", "ACCA"]
+        )
     elif recipient_type == "Individual Student":
         individual_id = st.text_input("Enter Student ID")
 
@@ -4053,7 +5869,10 @@ def send_emails():
                 recipients = [email for (email,) in results if email]
         elif recipient_type == "Individual Student":
             if individual_id:
-                cur.execute("SELECT email FROM student_info WHERE student_id = ?", (individual_id,))
+                cur.execute(
+                    "SELECT email FROM student_info WHERE student_id = ?",
+                    (individual_id,),
+                )
                 result = cur.fetchone()
                 if result and result[0]:
                     recipients = [result[0]]
@@ -4082,7 +5901,11 @@ def send_emails():
                     if attachment_path and os.path.exists(attachment_path):
                         with open(attachment_path, "rb") as f:
                             pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
-                        pdf_attachment.add_header("Content-Disposition", "attachment", filename=os.path.basename(attachment_path))
+                        pdf_attachment.add_header(
+                            "Content-Disposition",
+                            "attachment",
+                            filename=os.path.basename(attachment_path),
+                        )
                         msg.attach(pdf_attachment)
                 server.sendmail(SMTP_USERNAME, recipient, msg.as_string())
             server.quit()
@@ -4160,107 +5983,6 @@ def generate_batch_pdfs(document_type="student_info"):
             shutil.rmtree(temp_dir)
 
 
-def download_forms():
-    st.subheader("Download Forms")
-
-    conn = sqlite3.connect("student_registration.db")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.write("**Student Information Database**")
-        student_df = pd.read_sql_query(
-            """
-            SELECT 
-                student_id, surname, other_names, date_of_birth, 
-                place_of_birth, home_town, residential_address, 
-                postal_address, email, telephone, ghana_card_id, 
-                nationality, marital_status, gender, religion, 
-                denomination, disability_status, disability_description,
-                guardian_name, guardian_relationship, guardian_occupation,
-                guardian_address, guardian_telephone, previous_school,
-                qualification_type, completion_year, aggregate_score,
-                ghana_card_path, passport_photo_path, transcript_path,
-                certificate_path, receipt_path, receipt_amount,
-                approval_status, created_at, programme
-            FROM student_info
-        """,
-            conn,
-        )
-
-        if not student_df.empty:
-            csv = student_df.to_csv(index=False)
-            st.download_button(
-                label="Download Student Database (CSV)",
-                data=csv,
-                file_name=f"student_database_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-            )
-        else:
-            st.info("No student records available")
-
-    with col2:
-        st.write("**Course Registration Database**")
-        registration_df = pd.read_sql_query("SELECT * FROM course_registration", conn)
-
-        if not registration_df.empty:
-            csv = registration_df.to_csv(index=False)
-            st.download_button(
-                label="Download Course Registrations (CSV)",
-                data=csv,
-                file_name=f"course_registrations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-            )
-        else:
-            st.info("No registration records available")
-
-    st.markdown("---")
-
-    st.subheader("Download Filtered Data")
-
-    filter_col1, filter_col2 = st.columns(2)
-
-    with filter_col1:
-        status_filter = st.selectbox(
-            "Filter by Approval Status", ["All", "Pending", "Approved", "Rejected"]
-        )
-
-    with filter_col2:
-        date_range = st.date_input(
-            "Select Date Range",
-            value=(datetime.now() - timedelta(days=30), datetime.now()),
-            max_value=datetime.now(),
-        )
-
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-
-        query = """
-            SELECT * FROM student_info 
-            WHERE date_of_birth BETWEEN ? AND ?
-        """
-
-        if status_filter != "All":
-            query += f" AND approval_status = '{status_filter.lower()}'"
-
-        try:
-            filtered_df = pd.read_sql_query(query, conn, params=(start_date, end_date))
-
-            if not filtered_df.empty:
-                csv = filtered_df.to_csv(index=False)
-                st.download_button(
-                    label="Download Filtered Data (CSV)",
-                    data=csv,
-                    file_name=f"filtered_student_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                )
-            else:
-                st.info("No records found for the selected filters")
-
-        except pd.errors.DatabaseError:
-            st.error("Error filtering data. Please try different filter criteria.")
-
-    conn.close()
 
 
 import zipfile
@@ -4555,12 +6277,17 @@ class NotificationSystem:
         )
         conn.commit()
         conn.close()
-        
-        
-        
 
-    def create_notification(self, title, message, recipient_type, recipient_id=None,
-                            notification_type="info", metadata=None, expires_at=None):
+    def create_notification(
+        self,
+        title,
+        message,
+        recipient_type,
+        recipient_id=None,
+        notification_type="info",
+        metadata=None,
+        expires_at=None,
+    ):
         conn = sqlite3.connect("student_registration.db")
         c = conn.cursor()
         c.execute(
@@ -4578,7 +6305,7 @@ class NotificationSystem:
                 notification_type,
                 json.dumps(metadata) if metadata else None,
                 expires_at.isoformat() if expires_at else None,
-            )
+            ),
         )
         notification_id = c.lastrowid
         conn.commit()
@@ -4683,8 +6410,13 @@ class NotificationSystem:
     def delete_notification(self, notification_id):
         conn = sqlite3.connect("student_registration.db")
         c = conn.cursor()
-        c.execute("DELETE FROM notification_reads WHERE notification_id = ?", (notification_id,))
-        c.execute("DELETE FROM notifications WHERE notification_id = ?", (notification_id,))
+        c.execute(
+            "DELETE FROM notification_reads WHERE notification_id = ?",
+            (notification_id,),
+        )
+        c.execute(
+            "DELETE FROM notifications WHERE notification_id = ?", (notification_id,)
+        )
         conn.commit()
         conn.close()
 
@@ -4724,32 +6456,45 @@ def admin_notification_interface():
     tab1, tab2 = st.tabs(["Create Notification", "View/Manage Notifications"])
 
     with tab1:
-        recipient_type = st.selectbox("Recipient Type", ["all", "program", "student"],
-                                        help="Select who should receive this notification")
+        recipient_type = st.selectbox(
+            "Recipient Type",
+            ["all", "program", "student"],
+            help="Select who should receive this notification",
+        )
         recipient_id = None
         if recipient_type == "program":
-            recipient_id = st.selectbox("Select Program", ["CIMG", "CIM-UK", "ICAG", "ACCA"])
+            recipient_id = st.selectbox(
+                "Select Program", ["CIMG", "CIM-UK", "ICAG", "ACCA"]
+            )
         elif recipient_type == "student":
             conn = sqlite3.connect("student_registration.db")
             c = conn.cursor()
-            c.execute("SELECT student_id, surname, other_names FROM student_info ORDER BY surname, other_names")
+            c.execute(
+                "SELECT student_id, surname, other_names FROM student_info ORDER BY surname, other_names"
+            )
             students = c.fetchall()
             conn.close()
             if students:
-                options = [f"{id} - {surname} {other_names}" for id, surname, other_names in students]
+                options = [
+                    f"{id} - {surname} {other_names}"
+                    for id, surname, other_names in students
+                ]
                 selected = st.selectbox("Select Student", options)
                 recipient_id = selected.split(" - ")[0]
             else:
                 st.warning("No students found in database")
                 return
 
-
-        notification_type = st.selectbox("Notification Type", ["info", "warning", "success", "error"])
+        notification_type = st.selectbox(
+            "Notification Type", ["info", "warning", "success", "error"]
+        )
         title = st.text_input("Notification Title")
         message = st.text_area("Notification Message")
 
         # File uploader for optional PDF attachment.
-        attachment_file = st.file_uploader("Upload PDF Attachment (Optional)", type=["pdf"])
+        attachment_file = st.file_uploader(
+            "Upload PDF Attachment (Optional)", type=["pdf"]
+        )
 
         col1, col2 = st.columns(2)
         with col1:
@@ -4759,7 +6504,9 @@ def admin_notification_interface():
 
         metadata = {}
         if include_metadata:
-            metadata_str = st.text_area("Additional Data (JSON format)", help="Enter valid JSON data")
+            metadata_str = st.text_area(
+                "Additional Data (JSON format)", help="Enter valid JSON data"
+            )
             try:
                 metadata = json.loads(metadata_str) if metadata_str else {}
             except json.JSONDecodeError:
@@ -4771,13 +6518,12 @@ def admin_notification_interface():
             expires_at = st.date_input("Expiration Date")
             if expires_at:
                 expires_at = datetime.combine(expires_at, datetime.min.time())
-        
+
         # If a PDF attachment was provided, save it and add its path to metadata.
         if attachment_file is not None:
             attachment_path = save_uploaded_file(attachment_file, "uploads")
             if attachment_path:
                 metadata["attachment_path"] = attachment_path
-
 
         if st.button("Send Notification"):
             if not title or not message:
@@ -4970,113 +6716,175 @@ def load_custom_css():
     )
 
 
-def modern_student_portal():
+import os
+import time
+import threading
+from typing import Optional, List
+import logging
+from contextlib import contextmanager
+
+class ZipFileCleanupHandler:
     """
-    Enhanced student portal with modern UI and responsive design.
-    Dummy helper functions are used below for illustration.
+    Handles the cleanup of temporary zip files after they've been downloaded.
+    
+    This class provides both immediate cleanup functionality and a background
+    cleanup service that periodically scans for and removes old zip files.
     """
-    # Load custom CSS
-    load_custom_css()
-
-    # Check if student is logged in (dummy session variable)
-    student_id = st.session_state.get("student_logged_in")
-    if not student_id:
-        st.error("You must be logged in to view this page.")
-        return
-
-    # Fetch student data (dummy implementation; replace with real DB functions)
-    student = get_student_info(student_id)
-    registrations = get_student_registrations(student_id)
-
-    # Fetch notifications (dummy NotificationSystem)
-    notification_system = NotificationSystem()
-    notifications = notification_system.get_notifications(student_id)
-    unread_count = len([n for n in notifications if not n["is_read"]])
-
-    # Header Section with Quick Stats
-    st.markdown(
-        f"""
-    <div class="portal-header">
-        <h1>Welcome, {student.get('surname', '')} {student.get('other_names', '')}</h1>
-        <p>Student ID: {student.get('student_id', '')}</p>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # Quick Stats Grid
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(
-            f"""
-        <div class="stat-card">
-            <h3>Programme</h3>
-            <p>{student.get('programme', 'N/A')}</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
+    
+    def __init__(self, cleanup_delay: int = 5, scan_interval: int = 3600):
+        """
+        Initialize the zip file cleanup handler.
+        
+        Args:
+            cleanup_delay: Seconds to wait before deleting a file after download (default: 5)
+            scan_interval: Seconds between background cleanup scans (default: 3600 = 1 hour)
+        """
+        self.cleanup_delay = cleanup_delay
+        self.scan_interval = scan_interval
+        self.pending_deletions = set()
+        self.logger = self._setup_logger()
+        self._start_background_cleanup()
+    
+    def _setup_logger(self) -> logging.Logger:
+        """Set up a logger for the cleanup handler."""
+        logger = logging.getLogger("ZipFileCleanup")
+        logger.setLevel(logging.INFO)
+        
+        # Avoid adding duplicate handlers if logger already exists
+        if not logger.handlers:
+            handler = logging.FileHandler("zip_cleanup.log")
+            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        
+        return logger
+    
+    def _start_background_cleanup(self):
+        """Start the background cleanup thread."""
+        cleanup_thread = threading.Thread(
+            target=self._background_cleanup_service, 
+            daemon=True
         )
-    with col2:
-        st.markdown(
-            f"""
-        <div class="stat-card">
-            <h3>Notifications</h3>
-            <p>{unread_count} unread</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    with col3:
-        st.markdown(
-            f"""
-        <div class="stat-card">
-            <h3>Registrations</h3>
-            <p>{len(registrations)} total</p>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
+        cleanup_thread.start()
+        self.logger.info("Background cleanup service started")
+    
+    def _background_cleanup_service(self):
+        """Background service that periodically cleans up old zip files."""
+        while True:
+            try:
+                self.cleanup_old_zip_files()
+                time.sleep(self.scan_interval)
+            except Exception as e:
+                self.logger.error(f"Error in background cleanup: {str(e)}")
+                time.sleep(60)  # Wait a minute before retrying if there's an error
+    
+    def schedule_cleanup(self, filepath: str):
+        """
+        Schedule a file for cleanup after download.
+        
+        Args:
+            filepath: Path to the file that should be deleted
+        """
+        if not filepath or not os.path.exists(filepath):
+            return
+            
+        self.pending_deletions.add(filepath)
+        self.logger.info(f"Scheduled cleanup for: {filepath}")
+        
+        # Start a thread to delete the file after the delay
+        threading.Thread(
+            target=self._delayed_delete,
+            args=(filepath, self.cleanup_delay),
+            daemon=True
+        ).start()
+    
+    def _delayed_delete(self, filepath: str, delay: int):
+        """
+        Delete a file after a specified delay.
+        
+        Args:
+            filepath: Path to the file to delete
+            delay: Seconds to wait before deletion
+        """
+        try:
+            time.sleep(delay)
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                self.logger.info(f"Deleted file after download: {filepath}")
+            self.pending_deletions.discard(filepath)
+        except Exception as e:
+            self.logger.error(f"Error deleting file {filepath}: {str(e)}")
+    
+    def cleanup_old_zip_files(self, max_age_hours: int = 24, directories: Optional[List[str]] = None):
+        """
+        Clean up old zip files that may have been missed by the immediate cleanup.
+        
+        Args:
+            max_age_hours: Maximum age of files in hours before deletion (default: 24)
+            directories: List of directories to scan (default: current directory and common temp dirs)
+        """
+        if directories is None:
+            directories = [
+                ".",  # Current directory
+                "temp_export",
+                "temp_pdfs",
+                "temp_downloads",
+                "temp_import",
+                "db_backups"
+            ]
+        
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        
+        for directory in directories:
+            if not os.path.exists(directory):
+                continue
+                
+            for filename in os.listdir(directory):
+                if not filename.endswith(".zip"):
+                    continue
+                    
+                filepath = os.path.join(directory, filename)
+                if not os.path.isfile(filepath):
+                    continue
+                
+                # Skip files that are pending deletion
+                if filepath in self.pending_deletions:
+                    continue
+                
+                file_age = current_time - os.path.getmtime(filepath)
+                if file_age > max_age_seconds:
+                    try:
+                        os.remove(filepath)
+                        self.logger.info(f"Cleaned up old zip file: {filepath}")
+                    except Exception as e:
+                        self.logger.error(f"Error cleaning up old file {filepath}: {str(e)}")
 
-    # Main Content Tabs - Mobile Friendly Navigation
-    tabs = ["Dashboard", "Profile", "Courses", "Documents", "Notifications"]
-    selected_tab = st.radio("Navigation", tabs, horizontal=True)
-
-    if selected_tab == "Dashboard":
-        st.subheader("📊 Dashboard")
-        st.markdown("### Recent Activity")
-        if registrations:
-            latest_reg = registrations[0]
-            st.info(
-                f"Latest registration: {latest_reg.get('programme')} - {latest_reg.get('semester')} Semester"
-            )
-        # Quick Actions
-        st.markdown("### Quick Actions")
-        qa_col1, qa_col2 = st.columns(2)
-        with qa_col1:
-            if st.button("📄 Download Registration Proof", use_container_width=True):
-                if registrations:
-                    pdf_file = generate_course_registration_pdf(registrations[0])
-                    with open(pdf_file, "rb") as f:
-                        st.download_button(
-                            label="Download PDF",
-                            data=f,
-                            file_name=pdf_file,
-                            mime="application/pdf",
-                            use_container_width=True,
-                        )
-        with qa_col2:
-            if st.button("📝 Update Profile", use_container_width=True):
-                st.session_state.show_profile_edit = True
-    elif selected_tab == "Profile":
-        display_modern_profile(student)
-    elif selected_tab == "Courses":
-        display_modern_courses(registrations)
-    elif selected_tab == "Documents":
-        display_modern_documents(student)
-    elif selected_tab == "Notifications":
-        display_modern_notifications(notifications, notification_system, student_id)
+    @contextmanager
+    def cleanup_after_download(self, filepath: str):
+        """
+        Context manager that ensures a file is cleaned up after download.
+        
+        Usage:
+            with zip_cleanup_handler.cleanup_after_download(zip_filename):
+                st.download_button(
+                    label="Download ZIP",
+                    data=open(zip_filename, "rb").read(),
+                    file_name=zip_filename,
+                    mime="application/zip"
+                )
+        
+        Args:
+            filepath: Path to the file that should be deleted after download
+        """
+        try:
+            yield filepath
+        finally:
+            self.schedule_cleanup(filepath)
 
 
+# Create a singleton instance
+zip_cleanup_handler = ZipFileCleanupHandler()
 
 
 def get_student_info(student_id):
@@ -5107,168 +6915,10 @@ def get_student_registrations(student_id):
             "courses": "CS101|Intro to CS|3\nCS102|Data Structures|3",
         }
     ]
+    
 
 
 
-
-def generate_course_registration_pdf(registration):
-    # Dummy PDF generation function; replace with actual PDF library usage (e.g., ReportLab)
-    pdf_filename = f"registration_{registration.get('registration_id')}.pdf"
-    with open(pdf_filename, "w") as f:
-        f.write("PDF Content for Registration")
-    return pdf_filename
-
-
-def display_modern_profile(student):
-    st.subheader("👤 Profile Information")
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        if student.get("passport_photo_path") and os.path.exists(
-            student["passport_photo_path"]
-        ):
-            try:
-                img = PILImage.open(student["passport_photo_path"])
-                st.image(img, width=200, use_column_width=True, caption="Profile Photo")
-            except Exception:
-                st.image(
-                    "https://via.placeholder.com/200",
-                    use_column_width=True,
-                    caption="Profile Photo",
-                )
-        else:
-            st.image(
-                "https://via.placeholder.com/200",
-                use_column_width=True,
-                caption="Profile Photo",
-            )
-    with col2:
-        st.markdown("### Personal Details")
-        info_grid = {
-            "Full Name": f"{student.get('surname', '')} {student.get('other_names', '')}",
-            "Student ID": student.get("student_id", ""),
-            "Programme": student.get("programme", ""),
-            "Gender": student.get("gender", "N/A"),
-            "Date of Birth": student.get("date_of_birth", "N/A"),
-            "Nationality": student.get("nationality", "N/A"),
-        }
-        for key, value in info_grid.items():
-            st.markdown(f"**{key}:** {value}")
-        st.markdown("### Contact Information")
-        contact_col1, contact_col2 = st.columns(2)
-        with contact_col1:
-            st.markdown(f"**Email:** {student.get('email', '')}")
-            st.markdown(f"**Phone:** {student.get('telephone', '')}")
-        with contact_col2:
-            st.markdown(f"**Address:** {student.get('residential_address', '')}")
-            st.markdown(f"**Postal:** {student.get('postal_address', '')}")
-
-
-def display_modern_courses(registrations):
-    st.subheader("📚 Course Registrations")
-    if not registrations:
-        st.info("No course registrations found.")
-        return
-    for reg in registrations:
-        with st.expander(
-            f"📘 {reg.get('programme')} - {reg.get('semester')} Semester", expanded=True
-        ):
-            st.markdown(f"**Level:** {reg.get('level', '')}")
-            st.markdown(f"**Academic Year:** {reg.get('academic_year', '')}")
-            if reg.get("courses"):
-                st.markdown("### Registered Courses")
-                courses = reg["courses"].split("\n")
-                for course in courses:
-                    if "|" in course:
-                        code, title, credits = course.split("|")
-                        st.markdown(f"- **{code}**: {title} ({credits} credits)")
-            st.markdown("### Semester Progress")
-            progress = 0.65  # Dummy value; calculate with actual data
-            st.progress(progress)
-            st.markdown(f"Semester Progress: {int(progress * 100)}%")
-
-
-def display_modern_documents(student):
-    st.subheader("📑 Documents")
-    documents = {
-        "Ghana Card": student.get("ghana_card_path"),
-        "Passport Photo": student.get("passport_photo_path"),
-        "Transcript": student.get("transcript_path"),
-        "Certificate": student.get("certificate_path"),
-        "Receipt": student.get("receipt_path"),
-    }
-    doc_icons = {
-        "Ghana Card": "🪪",
-        "Passport Photo": "📸",
-        "Transcript": "📄",
-        "Certificate": "🎓",
-        "Receipt": "🧾",
-    }
-    for doc_name, doc_path in documents.items():
-        st.markdown(f"**{doc_icons.get(doc_name, '📄')} {doc_name}:**")
-        if doc_path and os.path.exists(doc_path):
-            if doc_path.lower().endswith((".jpg", ".jpeg", ".png")):
-                try:
-                    img = PILImage.open(doc_path)
-                    st.image(img, width=300)
-                except Exception:
-                    st.error(f"Error displaying {doc_name}")
-            else:
-                st.markdown(f"[View {doc_name}]({doc_path})")
-            st.download_button(
-                f"Download {doc_name}",
-                open(doc_path, "rb").read(),
-                file_name=os.path.basename(doc_path),
-                mime="application/octet-stream",
-            )
-        else:
-            st.warning(f"No {doc_name} uploaded")
-        st.markdown("---")
-
-
-def display_modern_notifications(notifications, notification_system, student_id):
-    st.subheader("🔔 Notifications")
-    if not notifications:
-        st.info("No notifications to display")
-        return
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        filter_type = st.selectbox("Filter by", ["All", "Unread", "Read"])
-    with col2:
-        if st.button("Mark All Read", use_container_width=True):
-            notification_system.mark_all_as_read(student_id)
-            st.rerun()
-    filtered_notifications = notifications
-    if filter_type == "Unread":
-        filtered_notifications = [n for n in notifications if not n["is_read"]]
-    elif filter_type == "Read":
-        filtered_notifications = [n for n in notifications if n["is_read"]]
-    for notif in filtered_notifications:
-        with st.container():
-            st.markdown(
-                f"""
-            <div style="padding: 1rem; margin: 0.5rem 0; background: white; border-radius: 8px; 
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 4px solid {get_notification_color(notif['type'])};">
-                <h4>{notif['title']}</h4>
-                <p>{notif['message']}</p>
-                <small style="color: #666;">{notif['created_at']} • {"Read" if notif["is_read"] else "Unread"}</small>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-            if not notif["is_read"]:
-                if st.button("Mark as Read", key=f"read_{notif['id']}"):
-                    notification_system.mark_as_read(notif["id"], student_id)
-                    st.rerun()
-
-
-def get_notification_color(notification_type):
-    colors = {
-        "info": "#2196F3",
-        "success": "#4CAF50",
-        "warning": "#FFC107",
-        "error": "#F44336",
-    }
-    return colors.get(notification_type, "#2196F3")
 
 def initialize_app():
     if "db_initialized" not in st.session_state:
@@ -5278,17 +6928,18 @@ def initialize_app():
     if "admin_logged_in" not in st.session_state:
         st.session_state.admin_logged_in = False
         st.session_state.admin_logged_in = False
-        
+
+
 class RegistrationConstraintsManager:
     """
     Manages registration constraints and storage cleanup.
     Prevents duplicate submissions and cleans up old files.
     """
-    
+
     def __init__(self, db_path: str = "student_registration.db"):
         self.db_path = db_path
         self.memory_threshold = 0.85  # 85% memory usage threshold
-        
+
     @contextmanager
     def optimized_connection(self):
         conn = None
@@ -5304,8 +6955,10 @@ class RegistrationConstraintsManager:
         memory_usage = psutil.Process(os.getpid()).memory_percent()
         if memory_usage > self.memory_threshold:
             gc.collect()
-            
-    def check_existing_registration(self, student_id: str) -> Tuple[bool, Optional[str]]:
+
+    def check_existing_registration(
+        self, student_id: str
+    ) -> Tuple[bool, Optional[str]]:
         """
         Check if student already has a registration.
         Returns (has_registration, status)
@@ -5314,10 +6967,10 @@ class RegistrationConstraintsManager:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT approval_status FROM student_info WHERE student_id = ?",
-                (student_id,)
+                (student_id,),
             )
             result = cursor.fetchone()
-            
+
             if result:
                 return True, result[0]
             return False, None
@@ -5329,28 +6982,28 @@ class RegistrationConstraintsManager:
         """
         if photo is None:
             return False, "Passport photo is mandatory"
-            
+
         try:
             image = Image.open(photo)
-            
+
             # Check image format
-            if image.format not in ['JPEG', 'PNG']:
+            if image.format not in ["JPEG", "PNG"]:
                 return False, "Photo must be in JPEG or PNG format"
-                
+
             # Check dimensions (e.g., minimum 200x200, maximum 1000x1000)
             if image.size[0] < 200 or image.size[1] < 200:
                 return False, "Photo dimensions too small (minimum 200x200 pixels)"
             if image.size[0] > 1000 or image.size[1] > 1000:
                 return False, "Photo dimensions too large (maximum 1000x1000 pixels)"
-                
+
             # Check file size (max 5MB)
             photo.seek(0, os.SEEK_END)
             file_size = photo.tell()
             if file_size > 5 * 1024 * 1024:  # 5MB in bytes
                 return False, "Photo file size too large (maximum 5MB)"
-                
+
             return True, "Photo validation successful"
-            
+
         except Exception as e:
             return False, f"Error validating photo: {str(e)}"
 
@@ -5361,19 +7014,19 @@ class RegistrationConstraintsManager:
         """
         with self.optimized_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Check if student info exists and is approved
             cursor.execute(
                 "SELECT approval_status FROM student_info WHERE student_id = ?",
-                (student_id,)
+                (student_id,),
             )
             student_info = cursor.fetchone()
-            
+
             if not student_info:
                 return False, "Student information not found"
-            if student_info[0] != 'approved':
+            if student_info[0] != "approved":
                 return False, "Student information not yet approved"
-                
+
             # Check existing course registrations
             cursor.execute(
                 """
@@ -5383,16 +7036,16 @@ class RegistrationConstraintsManager:
                 ORDER BY date_registered DESC 
                 LIMIT 1
                 """,
-                (student_id,)
+                (student_id,),
             )
             registration = cursor.fetchone()
-            
+
             if registration:
-                if registration[0] == 'pending':
+                if registration[0] == "pending":
                     return False, "Previous course registration pending approval"
-                if registration[0] == 'approved':
+                if registration[0] == "approved":
                     return False, "Course registration already approved"
-                    
+
             return True, "Course registration allowed"
 
     def get_registration_status(self, student_id: str) -> Dict:
@@ -5401,15 +7054,15 @@ class RegistrationConstraintsManager:
         """
         with self.optimized_connection() as conn:
             cursor = conn.cursor()
-            
+
             status = {
-                'has_student_info': False,
-                'student_info_status': None,
-                'has_course_registration': False,
-                'course_registration_status': None,
-                'last_update': None
+                "has_student_info": False,
+                "student_info_status": None,
+                "has_course_registration": False,
+                "course_registration_status": None,
+                "last_update": None,
             }
-            
+
             # Check student info
             cursor.execute(
                 """
@@ -5417,15 +7070,15 @@ class RegistrationConstraintsManager:
                 FROM student_info 
                 WHERE student_id = ?
                 """,
-                (student_id,)
+                (student_id,),
             )
             student_info = cursor.fetchone()
-            
+
             if student_info:
-                status['has_student_info'] = True
-                status['student_info_status'] = student_info[0]
-                status['last_update'] = student_info[1]
-            
+                status["has_student_info"] = True
+                status["student_info_status"] = student_info[0]
+                status["last_update"] = student_info[1]
+
             # Check course registration
             cursor.execute(
                 """
@@ -5435,89 +7088,99 @@ class RegistrationConstraintsManager:
                 ORDER BY date_registered DESC 
                 LIMIT 1
                 """,
-                (student_id,)
+                (student_id,),
             )
             registration = cursor.fetchone()
-            
+
             if registration:
-                status['has_course_registration'] = True
-                status['course_registration_status'] = registration[0]
-                status['last_update'] = max(status['last_update'], registration[1]) if status['last_update'] else registration[1]
-                
+                status["has_course_registration"] = True
+                status["course_registration_status"] = registration[0]
+                status["last_update"] = (
+                    max(status["last_update"], registration[1])
+                    if status["last_update"]
+                    else registration[1]
+                )
+
             return status
-        
-        
+
     def check_existing_student_info(self, student_id: str) -> bool:
         """
         Returns True if student info already exists.
         """
         with self.optimized_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM student_info WHERE student_id = ?", (student_id,))
+            cursor.execute(
+                "SELECT 1 FROM student_info WHERE student_id = ?", (student_id,)
+            )
             return cursor.fetchone() is not None
-    
+
     def check_existing_course_registration(self, student_id: str) -> bool:
         """
         Returns True if a course registration already exists for a student.
         """
         with self.optimized_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM course_registration WHERE student_id = ?", (student_id,))
+            cursor.execute(
+                "SELECT 1 FROM course_registration WHERE student_id = ?", (student_id,)
+            )
             return cursor.fetchone() is not None
 
     def cleanup_old_files(self, days_old: int = 30):
-            """
-            Remove files in the uploads directory that are older than 'days_old'
-            and are not referenced in the database.
-            """
-            with self.optimized_connection() as conn:
-                cursor = conn.cursor()
-                # Both SELECT statements are now modified to return three columns.
-                cursor.execute(
-                    """
+        """
+        Remove files in the uploads directory that are older than 'days_old'
+        and are not referenced in the database.
+        """
+        with self.optimized_connection() as conn:
+            cursor = conn.cursor()
+            # Both SELECT statements are now modified to return three columns.
+            cursor.execute(
+                """
                     SELECT ghana_card_path, passport_photo_path, certificate_path
                     FROM student_info
                     UNION
                     SELECT receipt_path, NULL, NULL
                     FROM course_registration
                     """
-                )
-                db_files = set()
-                for row in cursor.fetchall():
-                    # Update the set with each value in the tuple if it exists.
-                    db_files.update(path for path in row if path)
+            )
+            db_files = set()
+            for row in cursor.fetchall():
+                # Update the set with each value in the tuple if it exists.
+                db_files.update(path for path in row if path)
 
-            uploads_dir = "uploads"
-            if os.path.exists(uploads_dir):
-                current_time = datetime.now().timestamp()
-                for filename in os.listdir(uploads_dir):
-                    file_path = os.path.join(uploads_dir, filename)
-                    if os.path.isfile(file_path):
-                        file_age = current_time - os.path.getmtime(file_path)
-                        # Remove file if it is older than days_old and not referenced in db_files.
-                        if file_age > (days_old * 86400) and file_path not in db_files:
-                            try:
-                                os.remove(file_path)
-                                print(f"Removed old file: {file_path}")
-                            except Exception as e:
-                                print(f"Error removing file {file_path}: {str(e)}")
-                                
-                                
+        uploads_dir = "uploads"
+        if os.path.exists(uploads_dir):
+            current_time = datetime.now().timestamp()
+            for filename in os.listdir(uploads_dir):
+                file_path = os.path.join(uploads_dir, filename)
+                if os.path.isfile(file_path):
+                    file_age = current_time - os.path.getmtime(file_path)
+                    # Remove file if it is older than days_old and not referenced in db_files.
+                    if file_age > (days_old * 86400) and file_path not in db_files:
+                        try:
+                            os.remove(file_path)
+                            print(f"Removed old file: {file_path}")
+                        except Exception as e:
+                            print(f"Error removing file {file_path}: {str(e)}")
+
 
 def admin_login():
     st.sidebar.subheader("Admin Login")
     username = st.sidebar.text_input("Username", key="login_username")
     password = st.sidebar.text_input("Password", type="password", key="login_password")
     if st.sidebar.button("Login"):
-        if username == st.secrets["admin"]["username"] and password == st.secrets["admin"]["password"]:
+        if (
+            username == st.secrets["admin"]["username"]
+            and password == st.secrets["admin"]["password"]
+        ):
             st.session_state.admin_logged_in = True
             st.rerun()
         else:
             st.error("Invalid credentials")
 
+
 def main():
     initialize_app()
-    
+
     # Call cleanup for old files at app startup
     rc_manager = RegistrationConstraintsManager()
     rc_manager.cleanup_old_files(days_old=30)
@@ -5537,7 +7200,7 @@ def main():
 
         if page == "Student Information":
             student_info_form()
-            
+
         elif page == "Course Registration":
             course_registration_form()
         else:
@@ -5556,8 +7219,6 @@ def main():
                         """,
                         unsafe_allow_html=True,
                     )
-            
-
 
 
 if __name__ == "__main__":
